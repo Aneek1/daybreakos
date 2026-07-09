@@ -1,0 +1,9 @@
+#!/bin/bash
+# aurora-session — started by aurora-shell.service as the 'aurora' user.
+# cage (Wayland kiosk) running Firefox fullscreen on the shell.
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+export MOZ_ENABLE_WAYLAND=1
+export HOME=/var/lib/aurora
+exec cage -d -- firefox --kiosk --profile /var/lib/aurora/.mozilla/firefox/kiosk.default \
+  "file:///usr/share/aurora/shell/index.html"

@@ -1,0 +1,14 @@
+[Unit]
+Description=AuroraOS system bridge (aurorad)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/lib/aurora/aurorad
+Restart=always
+RestartSec=2
+# root is needed for backlight + systemctl; API binds 127.0.0.1 only
+NoNewPrivileges=yes
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

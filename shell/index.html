@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuroraOS — Shell</title>
+<style>
+  :root{
+    --acc:#4cc2ff; --acc2:#8b5cf6;
+    --mica:rgba(28,30,38,.72); --mica2:rgba(22,24,32,.86);
+    --stroke:rgba(255,255,255,.09); --stroke2:rgba(255,255,255,.14);
+    --txt:#f4f6fb; --mut:#9aa3b5; --faint:#6b7280;
+    --r:14px; --shadow:0 24px 70px -18px rgba(0,0,0,.65);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;user-select:none}
+  html,body{height:100%;overflow:hidden}
+  body{font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;color:var(--txt);background:#000}
+  #os{position:fixed;inset:0}
+
+  /* ---------- wallpaper ---------- */
+  .wall{position:absolute;inset:0;background:
+    radial-gradient(1100px 700px at 75% 20%, #35406e 0%, transparent 60%),
+    radial-gradient(900px 700px at 20% 85%, #1d3a5f 0%, transparent 55%),
+    radial-gradient(700px 500px at 55% 60%, rgba(139,92,246,.35) 0%, transparent 60%),
+    linear-gradient(160deg,#0b0e1a 0%,#141a2e 50%,#0d1322 100%)}
+  .wall::after{content:"";position:absolute;inset:0;background:
+    radial-gradient(600px 400px at 60% 35%, rgba(76,194,255,.16), transparent 65%);
+    animation:breathe 14s ease-in-out infinite alternate}
+  @keyframes breathe{to{opacity:.4;transform:translateY(3%)}}
+
+  /* ---------- boot ---------- */
+  #boot{position:absolute;inset:0;background:#000;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:34px;z-index:200;transition:opacity .8s}
+  #boot.gone{opacity:0;pointer-events:none}
+  .winlogo{display:grid;grid-template-columns:1fr 1fr;gap:5px;width:72px;height:72px}
+  .winlogo i{background:var(--acc);border-radius:6px;display:block}
+  .winlogo.grad i{background:linear-gradient(135deg,#4cc2ff,#8b5cf6)}
+  .spin{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,.15);
+    border-top-color:#fff;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- lock ---------- */
+  #lock{position:absolute;inset:0;z-index:150;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:8px;backdrop-filter:blur(0px);transition:opacity .5s,transform .5s;cursor:pointer}
+  #lock.gone{opacity:0;transform:translateY(-40px);pointer-events:none}
+  #lock .time{font-size:96px;font-weight:200;letter-spacing:-.02em;line-height:1}
+  #lock .date{font-size:22px;font-weight:400;color:#dfe5f0}
+  #lock .hint{position:absolute;bottom:70px;color:#c8d0de;font-size:14px;display:flex;flex-direction:column;align-items:center;gap:14px}
+  .avatar{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,#4cc2ff,#8b5cf6);
+    display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+
+  /* ---------- desktop icons ---------- */
+  #desk{position:absolute;inset:0 0 56px 0;padding:14px}
+  .dicon{width:86px;padding:10px 4px;border-radius:8px;text-align:center;font-size:12px;color:#eef2f8;
+    display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  .dicon:hover{background:rgba(255,255,255,.08)}
+  .dicon .ic{font-size:34px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.4))}
+
+  /* ---------- taskbar ---------- */
+  #bar{position:absolute;left:0;right:0;bottom:0;height:56px;z-index:100;display:flex;align-items:center;
+    padding:0 14px;background:var(--mica);backdrop-filter:blur(28px) saturate(1.4);border-top:1px solid var(--stroke)}
+  .bar-c{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:6px;align-items:center}
+  .tbtn{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    font-size:22px;cursor:pointer;position:relative;transition:background .15s}
+  .tbtn:hover{background:rgba(255,255,255,.09)}
+  .tbtn.on::after{content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);
+    width:16px;height:3px;border-radius:3px;background:var(--acc)}
+  .tbtn .wl{width:22px;height:22px;gap:2px}
+  .tbtn .wl i{border-radius:2px}
+  #search-pill{display:flex;align-items:center;gap:8px;height:42px;padding:0 16px 0 12px;border-radius:21px;
+    background:rgba(255,255,255,.08);border:1px solid var(--stroke);cursor:pointer;font-size:13.5px;color:var(--mut)}
+  #search-pill:hover{background:rgba(255,255,255,.12)}
+  .bar-r{margin-left:auto;display:flex;align-items:center;gap:2px}
+  .tray{display:flex;align-items:center;gap:10px;padding:6px 12px;border-radius:10px;cursor:pointer;font-size:13px}
+  .tray:hover{background:rgba(255,255,255,.09)}
+  .clock{text-align:right;font-size:12.5px;line-height:1.35;padding:4px 10px;border-radius:10px;cursor:pointer}
+  .clock:hover{background:rgba(255,255,255,.09)}
+
+  /* ---------- flyout base ---------- */
+  .fly{position:absolute;z-index:120;background:var(--mica2);backdrop-filter:blur(36px) saturate(1.5);
+    border:1px solid var(--stroke2);border-radius:16px;box-shadow:var(--shadow);
+    opacity:0;pointer-events:none;transform:translateY(14px) scale(.98);transition:.22s cubic-bezier(.2,.8,.2,1)}
+  .fly.show{opacity:1;pointer-events:auto;transform:translateY(0) scale(1)}
+
+  /* ---------- start ---------- */
+  #start{left:50%;bottom:68px;transform:translateX(-50%) translateY(14px) scale(.98);width:600px;padding:22px}
+  #start.show{transform:translateX(-50%) translateY(0) scale(1)}
+  #ask{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.07);border:1px solid var(--stroke2);
+    border-radius:12px;padding:12px 16px}
+  #ask input{flex:1;background:none;border:none;outline:none;color:var(--txt);font-size:14.5px;font-family:inherit}
+  #ask input::placeholder{color:var(--faint)}
+  .s-lab{font-size:12.5px;font-weight:600;color:var(--mut);margin:20px 0 10px;display:flex;justify-content:space-between}
+  .s-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+  .s-app{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 4px;border-radius:10px;
+    cursor:pointer;font-size:11.5px;text-align:center;color:#dfe5f0}
+  .s-app:hover{background:rgba(255,255,255,.08)}
+  .s-app .ic{font-size:30px}
+  .s-rec{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+  .s-ri{display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:10px;cursor:pointer}
+  .s-ri:hover{background:rgba(255,255,255,.08)}
+  .s-ri .ic{font-size:22px}
+  .s-ri .t{font-size:12.5px}
+  .s-ri .d{font-size:11px;color:var(--faint)}
+  .s-foot{display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:16px;
+    border-top:1px solid var(--stroke)}
+  .s-user{display:flex;align-items:center;gap:10px;font-size:13px;padding:6px 10px;border-radius:10px;cursor:pointer}
+  .s-user:hover{background:rgba(255,255,255,.08)}
+  .s-user .avatar{width:32px;height:32px;font-size:14px}
+  .pwr{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;font-size:17px}
+  .pwr:hover{background:rgba(255,255,255,.08)}
+
+  /* ---------- quick settings ---------- */
+  #qs{right:14px;bottom:68px;width:380px;padding:20px}
+  .qs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .qt{background:rgba(255,255,255,.07);border:1px solid var(--stroke);border-radius:12px;padding:12px;
+    cursor:pointer;font-size:12px;display:flex;flex-direction:column;gap:8px;transition:.15s}
+  .qt .ic{font-size:18px}
+  .qt.on{background:var(--acc);color:#08243a;border-color:transparent;font-weight:600}
+  .qs-sl{margin-top:16px;font-size:12.5px;color:var(--mut)}
+  .qs-sl input{width:100%;accent-color:var(--acc);margin-top:6px}
+  .qs-foot{display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;
+    border-top:1px solid var(--stroke);font-size:12.5px;color:var(--mut)}
+
+  /* ---------- notifications / calendar ---------- */
+  #noti{right:14px;bottom:68px;width:360px;padding:18px;max-height:70vh;overflow:auto}
+  .n-card{background:rgba(255,255,255,.06);border:1px solid var(--stroke);border-radius:12px;padding:13px 15px;margin-bottom:10px}
+  .n-card b{font-size:13px}
+  .n-card p{font-size:12.5px;color:var(--mut);margin-top:4px;line-height:1.5}
+  .n-src{font-size:11px;color:var(--faint);display:flex;gap:6px;align-items:center;margin-bottom:6px}
+  .cal{background:rgba(255,255,255,.06);border:1px solid var(--stroke);border-radius:12px;padding:16px;text-align:center}
+  .cal .big{font-size:30px;font-weight:600}
+
+  /* ---------- widgets ---------- */
+  #widgets{left:14px;bottom:68px;width:640px;padding:20px;max-height:76vh;overflow:auto}
+  .w-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .wcard{background:rgba(255,255,255,.06);border:1px solid var(--stroke);border-radius:14px;padding:16px}
+  .wcard h4{font-size:12.5px;color:var(--mut);font-weight:600;margin-bottom:10px;display:flex;gap:8px;align-items:center}
+  .wcard .big{font-size:26px;font-weight:600}
+  .wcard p{font-size:12.5px;color:var(--mut);line-height:1.55}
+  .wcard.ai{grid-column:1/-1;background:linear-gradient(135deg,rgba(76,194,255,.13),rgba(139,92,246,.13));
+    border-color:rgba(139,92,246,.35)}
+  .wcard.ai p b{color:var(--txt)}
+
+  /* ---------- copilot panel ---------- */
+  #copilot{position:absolute;top:12px;right:12px;bottom:68px;width:400px;z-index:110;
+    background:var(--mica2);backdrop-filter:blur(36px) saturate(1.5);border:1px solid var(--stroke2);
+    border-radius:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;
+    opacity:0;pointer-events:none;transform:translateX(30px);transition:.25s cubic-bezier(.2,.8,.2,1)}
+  #copilot.show{opacity:1;pointer-events:auto;transform:translateX(0)}
+  .cp-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--stroke)}
+  .cp-orb{width:26px;height:26px;border-radius:50%;background:conic-gradient(from 0deg,#4cc2ff,#8b5cf6,#ec4899,#4cc2ff);
+    animation:orb 6s linear infinite}
+  @keyframes orb{to{transform:rotate(360deg)}}
+  .cp-head b{font-size:14px}
+  .cp-head span{font-size:11px;color:var(--faint);margin-left:auto;border:1px solid var(--stroke2);
+    padding:3px 8px;border-radius:99px}
+  .cp-x{cursor:pointer;color:var(--mut);font-size:18px;padding:2px 8px;border-radius:8px}
+  .cp-x:hover{background:rgba(255,255,255,.08)}
+  #cp-log{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+  .msg{max-width:85%;padding:11px 14px;border-radius:14px;font-size:13px;line-height:1.55}
+  .msg.u{align-self:flex-end;background:var(--acc);color:#08243a;border-bottom-right-radius:4px}
+  .msg.a{align-self:flex-start;background:rgba(255,255,255,.08);border:1px solid var(--stroke);border-bottom-left-radius:4px}
+  .msg.a b{color:var(--acc)}
+  .cp-chips{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 10px}
+  .chip{font-size:11.5px;padding:6px 12px;border-radius:99px;border:1px solid var(--stroke2);cursor:pointer;color:var(--mut)}
+  .chip:hover{border-color:var(--acc);color:var(--acc)}
+  .cp-in{display:flex;gap:10px;padding:14px 16px;border-top:1px solid var(--stroke)}
+  .cp-in input{flex:1;background:rgba(255,255,255,.07);border:1px solid var(--stroke2);border-radius:10px;
+    padding:10px 14px;color:var(--txt);outline:none;font-size:13px;font-family:inherit}
+  .cp-send{width:40px;border-radius:10px;border:none;background:var(--acc);color:#08243a;font-size:16px;cursor:pointer}
+
+  /* ---------- windows ---------- */
+  .win{position:absolute;min-width:380px;min-height:260px;background:var(--mica2);
+    backdrop-filter:blur(36px) saturate(1.5);border:1px solid var(--stroke2);border-radius:12px;
+    box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;z-index:60;
+    animation:pop .22s cubic-bezier(.2,.8,.2,1)}
+  @keyframes pop{from{opacity:0;transform:scale(.96) translateY(10px)}}
+  .win.max{left:8px!important;top:8px!important;width:calc(100% - 16px)!important;height:calc(100% - 72px)!important}
+  .win.mini{display:none}
+  .thead{height:42px;display:flex;align-items:center;gap:10px;padding:0 6px 0 14px;cursor:grab;flex:0 0 auto}
+  .thead .ti{font-size:15px}
+  .thead b{font-size:12.5px;font-weight:600}
+  .tctl{margin-left:auto;display:flex}
+  .tc{width:44px;height:42px;display:flex;align-items:center;justify-content:center;font-size:12px;
+    cursor:pointer;color:var(--mut)}
+  .tc:hover{background:rgba(255,255,255,.09);color:var(--txt)}
+  .tc.x:hover{background:#e81123;color:#fff}
+  .wbody{flex:1;overflow:auto;display:flex}
+
+  /* snap layout popover */
+  #snap{position:absolute;z-index:130;background:var(--mica2);border:1px solid var(--stroke2);
+    border-radius:12px;padding:10px;display:none;gap:8px;box-shadow:var(--shadow)}
+  #snap.show{display:flex}
+  .sn{display:grid;gap:3px;width:64px;height:40px;cursor:pointer;border-radius:6px;padding:3px;border:1px solid transparent}
+  .sn:hover{border-color:var(--acc)}
+  .sn i{background:rgba(255,255,255,.25);border-radius:3px}
+  .sn:hover i{background:var(--acc)}
+  .sn.l2{grid-template-columns:1fr 1fr}
+  .sn.l21{grid-template-columns:2fr 1fr}
+  .sn.l3{grid-template-columns:1fr 1fr 1fr}
+
+  /* ---------- app contents ---------- */
+  .side{width:200px;border-right:1px solid var(--stroke);padding:12px 8px;flex:0 0 auto;overflow:auto}
+  .sit{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:8px;font-size:13px;
+    cursor:pointer;color:#dfe5f0;margin-bottom:2px}
+  .sit:hover{background:rgba(255,255,255,.07)}
+  .sit.on{background:rgba(255,255,255,.1)}
+  .main{flex:1;padding:18px 22px;overflow:auto}
+  .main h2{font-size:19px;font-weight:600;margin-bottom:16px}
+  .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+  .fit{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 6px;border-radius:10px;
+    cursor:pointer;font-size:12px;text-align:center}
+  .fit:hover{background:rgba(255,255,255,.07)}
+  .fit .ic{font-size:34px}
+  .set-row{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    border-radius:10px;padding:14px 16px;margin-bottom:8px;font-size:13px}
+  .set-row .ic{font-size:20px}
+  .set-row .d{font-size:11.5px;color:var(--faint);margin-top:2px}
+  .sw{margin-left:auto;width:42px;height:22px;border-radius:99px;background:rgba(255,255,255,.15);
+    position:relative;cursor:pointer;flex:0 0 auto;transition:.2s}
+  .sw::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;
+    background:#fff;transition:.2s}
+  .sw.on{background:var(--acc)}
+  .sw.on::after{left:23px;background:#08243a}
+  .np-bar{display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--stroke);align-items:center}
+  .np-ai{font-size:11.5px;padding:6px 12px;border-radius:99px;border:1px solid rgba(139,92,246,.5);
+    color:#c4b5fd;cursor:pointer}
+  .np-ai:hover{background:rgba(139,92,246,.15)}
+  .np-ta{flex:1;background:none;border:none;outline:none;resize:none;color:var(--txt);
+    font:13.5px/1.7 "Segoe UI Variable","Segoe UI",sans-serif;padding:16px;user-select:text}
+  .br-bar{display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--stroke);align-items:center}
+  .br-url{flex:1;background:rgba(255,255,255,.07);border:1px solid var(--stroke);border-radius:99px;
+    padding:8px 16px;font-size:12.5px;color:var(--mut)}
+  .br-nt{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:30px}
+  .br-nt h3{font-size:22px;font-weight:600}
+  .br-search{width:min(480px,90%);display:flex;gap:10px;background:rgba(255,255,255,.08);
+    border:1px solid var(--stroke2);border-radius:99px;padding:12px 20px;font-size:13.5px;color:var(--faint)}
+
+  /* context menu */
+  #ctx{position:absolute;z-index:140;width:240px;background:var(--mica2);backdrop-filter:blur(36px);
+    border:1px solid var(--stroke2);border-radius:10px;padding:6px;display:none;box-shadow:var(--shadow)}
+  #ctx.show{display:block}
+  .cit{display:flex;gap:10px;align-items:center;padding:8px 12px;border-radius:7px;font-size:12.5px;cursor:pointer}
+  .cit:hover{background:rgba(255,255,255,.09)}
+  .csep{height:1px;background:var(--stroke);margin:5px 8px}
+
+  /* toast */
+  #toast{position:absolute;right:16px;bottom:70px;z-index:150;background:var(--mica2);
+    backdrop-filter:blur(30px);border:1px solid var(--stroke2);border-radius:12px;padding:14px 18px;
+    font-size:13px;box-shadow:var(--shadow);opacity:0;transform:translateY(10px);transition:.3s;max-width:340px}
+  #toast.show{opacity:1;transform:translateY(0)}
+  #toast b{color:var(--acc)}
+</style>
+</head>
+<body>
+<div id="os">
+  <div class="wall"></div>
+
+  <!-- boot -->
+  <div id="boot">
+    <div class="winlogo grad"><i></i><i></i><i></i><i></i></div>
+    <div class="spin"></div>
+  </div>
+
+  <!-- lock -->
+  <div id="lock">
+    <div class="time" id="lk-time">--:--</div>
+    <div class="date" id="lk-date"></div>
+    <div class="hint">
+      <div class="avatar">A</div>
+      <div>Aneek · Click anywhere or press Enter to sign in</div>
+      <div style="font-size:11.5px;color:#8b94a6">AuroraOS · click to sign in</div>
+    </div>
+  </div>
+
+  <!-- desktop icons -->
+  <div id="desk">
+    <div class="dicon" data-open="files"><span class="ic">🗂️</span>Files</div>
+    <div class="dicon" data-open="edge"><span class="ic">🌐</span>Browser</div>
+    <div class="dicon" data-open="notes"><span class="ic">📝</span>Notepad AI</div>
+    <div class="dicon" data-open="settings"><span class="ic">⚙️</span>Settings</div>
+  </div>
+
+  <!-- taskbar -->
+  <div id="bar">
+    <div id="search-pill">🔍 <span>Search or ask anything…</span></div>
+    <div class="bar-c">
+      <div class="tbtn" id="b-start" title="Start"><span class="winlogo wl grad"><i></i><i></i><i></i><i></i></span></div>
+      <div class="tbtn" id="b-copilot" title="Aura"><div class="cp-orb" style="width:22px;height:22px"></div></div>
+      <div class="tbtn" id="b-widgets" title="Widgets">🌤️</div>
+      <div class="tbtn" data-open="files" data-app="files">🗂️</div>
+      <div class="tbtn" data-open="edge" data-app="edge">🌐</div>
+      <div class="tbtn" data-open="notes" data-app="notes">📝</div>
+      <div class="tbtn" data-open="settings" data-app="settings">⚙️</div>
+    </div>
+    <div class="bar-r">
+      <div class="tray" id="b-qs">📶 🔊 🔋</div>
+      <div class="clock" id="b-clock"><div id="tb-time"></div><div id="tb-date"></div></div>
+    </div>
+  </div>
+
+  <!-- flyouts -->
+  <div class="fly" id="start">
+    <div id="ask">✨<input id="ask-in" placeholder="Ask Aurora anything — open apps, find files, get things done…"></div>
+    <div class="s-lab"><span>Pinned</span><span style="cursor:pointer">All apps ›</span></div>
+    <div class="s-grid" id="s-pinned"></div>
+    <div class="s-lab"><span>Recommended for you</span><span style="color:#8b5cf6">✨ AI curated</span></div>
+    <div class="s-rec">
+      <div class="s-ri"><span class="ic">📄</span><div><div class="t">Q3 Report.docx</div><div class="d">You usually open this around now</div></div></div>
+      <div class="s-ri"><span class="ic">🎨</span><div><div class="t">portfolio-redesign</div><div class="d">Edited 2 hours ago</div></div></div>
+      <div class="s-ri"><span class="ic">📊</span><div><div class="t">Budget FY26.xlsx</div><div class="d">Shared by Priya yesterday</div></div></div>
+      <div class="s-ri"><span class="ic">🖼️</span><div><div class="t">Screenshots</div><div class="d">14 new items</div></div></div>
+    </div>
+    <div class="s-foot">
+      <div class="s-user"><div class="avatar">A</div>Aneek</div>
+      <div style="display:flex;gap:4px">
+        <div class="pwr" title="Lock" id="p-lock">🔒</div>
+        <div class="pwr" title="Restart" id="p-restart">🔄</div>
+        <div class="pwr" title="Shut down" id="p-off">⏻</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fly" id="qs">
+    <div class="qs-grid">
+      <div class="qt on"><span class="ic">📶</span>Wi-Fi<br><small style="opacity:.7">HomeNet-5G</small></div>
+      <div class="qt on"><span class="ic">🟦</span>Bluetooth</div>
+      <div class="qt"><span class="ic">✈️</span>Airplane</div>
+      <div class="qt on"><span class="ic">✨</span>AI Aware<br><small style="opacity:.7">on-device</small></div>
+      <div class="qt"><span class="ic">🌙</span>Focus</div>
+      <div class="qt"><span class="ic">🔦</span>Night light</div>
+    </div>
+    <div class="qs-sl">🔆 Brightness<input type="range" min="20" max="100" value="80" id="sl-bright"></div>
+    <div class="qs-sl">🔊 Volume<input type="range" min="0" max="100" value="55"></div>
+    <div class="qs-foot"><span>🔋 87% · 6 hr 12 min left</span><span style="cursor:pointer" data-open="settings">⚙️ Settings</span></div>
+  </div>
+
+  <div class="fly" id="noti">
+    <div class="cal"><div style="font-size:12px;color:var(--mut)">Thursday</div><div class="big" id="cal-date"></div><div style="font-size:12px;color:var(--mut);margin-top:6px">Nothing on the calendar for the rest of today 🎉</div></div>
+    <div style="font-size:12.5px;color:var(--mut);margin:14px 0 8px;display:flex;justify-content:space-between"><span>Notifications</span><span style="cursor:pointer" onclick="document.querySelectorAll('.n-card').forEach(n=>n.remove())">Clear all</span></div>
+    <div class="n-card"><div class="n-src">✨ Aura · summary of 3 grouped alerts</div><b>While you were away</b><p>2 emails from vendors (both confirmed delivery dates — no action needed) and 1 Teams mention from Priya about the Azure migration. Want replies drafted?</p></div>
+    <div class="n-card"><div class="n-src">⬆️ System Update</div><b>Update ready — no restart needed</b><p>AuroraOS update 1.1 was applied live. AI model refreshed to v4.2 (on-device).</p></div>
+    <div class="n-card"><div class="n-src">🛡️ Aurora Security</div><b>Weekly report</b><p>No threats. App permissions audit: 2 apps lost camera access after 30 days unused.</p></div>
+  </div>
+
+  <div class="fly" id="widgets">
+    <div class="w-grid">
+      <div class="wcard ai"><h4><span class="cp-orb" style="width:16px;height:16px;display:inline-block"></span> DAILY BRIEF — ambient AI</h4>
+        <p>Good afternoon, Aneek. <b>Focus block suggested 3–5 pm</b> — your calendar is clear and you historically ship the most code then. The <b>PO Agent UAT</b> has 2 pending buyer sign-offs. Singapore air quality is good; a run at 6 pm beats the 7 pm rain. Your portfolio deploy is still <b>uncommitted</b> — want me to walk you through the push?</p></div>
+      <div class="wcard"><h4>🌤️ WEATHER — Singapore</h4><div class="big">31°</div><p>Partly cloudy · feels 35° · rain likely 7 pm</p></div>
+      <div class="wcard"><h4>📈 MARKETS</h4><div class="big">+0.8%</div><p>STI 3,412 · NVDA +2.1% · MSFT +0.6%</p></div>
+      <div class="wcard"><h4>✅ TASKS</h4><p>▢ Push portfolio redesign<br>▢ Verify resume dates<br>▢ Reply to Priya — Azure SQL tier</p></div>
+      <div class="wcard"><h4>📰 FOR YOU</h4><p>"Agentic OS shells: the post-app era" · "Business Central 2026 wave 2 — what's new in OData v5"</p></div>
+    </div>
+  </div>
+
+  <!-- copilot -->
+  <div id="copilot">
+    <div class="cp-head"><div class="cp-orb"></div><b>Aura</b><span>on-device · private</span><div class="cp-x" id="cp-close">✕</div></div>
+    <div id="cp-log">
+      <div class="msg a">Hey Aneek 👋 I run locally on the NPU — nothing leaves this machine unless you ask. I can control settings, files, windows, and apps. Try me.</div>
+    </div>
+    <div class="cp-chips">
+      <div class="chip">Enable dark mode at sunset</div>
+      <div class="chip">Summarize my notifications</div>
+      <div class="chip">Tile my windows for coding</div>
+      <div class="chip">Find last week's screenshots</div>
+    </div>
+    <div class="cp-in"><input id="cp-in" placeholder="Ask, or describe what you want done…"><button class="cp-send" id="cp-send">➤</button></div>
+  </div>
+
+  <!-- snap popover -->
+  <div id="snap">
+    <div class="sn l2"><i></i><i></i></div>
+    <div class="sn l21"><i></i><i></i></div>
+    <div class="sn l3"><i></i><i></i><i></i></div>
+  </div>
+
+  <!-- context menu -->
+  <div id="ctx">
+    <div class="cit">🔄 Refresh</div>
+    <div class="cit" data-open="settings">🎨 Personalize</div>
+    <div class="csep"></div>
+    <div class="cit" id="ctx-ai">✨ Ask Aura about this desktop</div>
+    <div class="cit">📁 New folder</div>
+    <div class="cit" data-open="notes">📝 New note</div>
+  </div>
+
+  <div id="toast"></div>
+  <div id="wins"></div>
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+
+/* ---------- clocks ---------- */
+function tick(){
+  const n=new Date();
+  const t=n.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+  const d=n.toLocaleDateString([], {weekday:"long",month:"long",day:"numeric"});
+  $("#lk-time").textContent=t; $("#lk-date").textContent=d;
+  $("#tb-time").textContent=t;
+  $("#tb-date").textContent=n.toLocaleDateString([],{day:"numeric",month:"numeric",year:"numeric"});
+  $("#cal-date").textContent=n.toLocaleDateString([],{month:"long",day:"numeric"});
+}
+tick(); setInterval(tick,1000);
+
+/* ---------- boot / lock ---------- */
+setTimeout(()=>$("#boot").classList.add("gone"),1800);
+function unlock(){$("#lock").classList.add("gone")}
+$("#lock").addEventListener("click",unlock);
+addEventListener("keydown",e=>{if(e.key==="Enter")unlock()});
+$("#p-lock").onclick=()=>{closeAllFly();$("#lock").classList.remove("gone")};
+$("#p-restart").onclick=()=>{closeAllFly();$("#boot").classList.remove("gone");$("#lock").classList.remove("gone");setTimeout(()=>$("#boot").classList.add("gone"),1800)};
+$("#p-off").onclick=()=>{closeAllFly();toast("It's a concept — <b>you can't turn it off.</b> 🙂")};
+
+/* ---------- flyouts ---------- */
+const FLYS=["start","qs","noti","widgets"];
+function closeAllFly(except){FLYS.forEach(f=>{if(f!==except)$("#"+f).classList.remove("show")});$("#ctx").classList.remove("show")}
+function toggleFly(id){const el=$("#"+id);const was=el.classList.contains("show");closeAllFly();if(!was)el.classList.add("show")}
+$("#b-start").onclick=e=>{e.stopPropagation();toggleFly("start");setTimeout(()=>$("#ask-in").focus(),150)};
+$("#b-qs").onclick=e=>{e.stopPropagation();toggleFly("qs")};
+$("#b-clock").onclick=e=>{e.stopPropagation();toggleFly("noti")};
+$("#b-widgets").onclick=e=>{e.stopPropagation();toggleFly("widgets")};
+$("#search-pill").onclick=e=>{e.stopPropagation();toggleFly("start");setTimeout(()=>$("#ask-in").focus(),150)};
+document.addEventListener("click",e=>{if(!e.target.closest(".fly")&&!e.target.closest("#bar"))closeAllFly()});
+FLYS.forEach(f=>$("#"+f).addEventListener("click",e=>e.stopPropagation()));
+
+/* quick-setting tiles */
+$$(".qt").forEach(q=>q.onclick=()=>q.classList.toggle("on"));
+$("#sl-bright").oninput=e=>{document.getElementById("os").style.filter=`brightness(${.55+e.target.value/200})`};
+
+/* ---------- start menu ---------- */
+const PINNED=[["🗂️","Files","files"],["🌐","Browser","edge"],["📝","Notepad AI","notes"],["⚙️","Settings","settings"],["🎵","Media","edge"],["🖼️","Photos","files"],["💬","Teams","edge"],["🧮","Calc","notes"],["🛒","Store","edge"],["🎮","Game Bar","edge"],["📧","Mail","edge"],["🧑‍💻","Terminal","notes"]];
+$("#s-pinned").innerHTML=PINNED.map(p=>`<div class="s-app" data-open="${p[2]}"><span class="ic">${p[0]}</span>${p[1]}</div>`).join("");
+$("#ask-in").addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&e.target.value.trim()){
+    const q=e.target.value.trim(); e.target.value="";
+    closeAllFly(); openCopilot(); setTimeout(()=>cpAsk(q),300);
+  }
+});
+
+/* ---------- windows manager ---------- */
+let z=60; const open={};
+const APPS={
+  files:{t:"Files",i:"🗂️",w:760,h:480,html:`
+    <div class="side">
+      <div class="sit on">🏠 Home</div><div class="sit">✨ AI Gallery</div><div class="sit">📄 Documents</div>
+      <div class="sit">⬇️ Downloads</div><div class="sit">🖼️ Pictures</div><div class="sit">☁️ OneDrive</div>
+    </div>
+    <div class="main"><h2>Home</h2>
+      <div style="font-size:12px;color:#8b5cf6;margin:-8px 0 12px">✨ Semantic search enabled — try "photos from the robotics demo"</div>
+      <div class="fgrid">
+        <div class="fit"><span class="ic">📁</span>portfolio-redesign</div><div class="fit"><span class="ic">📁</span>Agents</div>
+        <div class="fit"><span class="ic">📁</span>SUTD Thesis</div><div class="fit"><span class="ic">📄</span>Resume_ATS.pdf</div>
+        <div class="fit"><span class="ic">📄</span>Q3 Report.docx</div><div class="fit"><span class="ic">📊</span>Budget FY26.xlsx</div>
+        <div class="fit"><span class="ic">🖼️</span>wallpapers</div><div class="fit"><span class="ic">🐍</span>make_resume.py</div>
+      </div></div>`},
+  settings:{t:"Settings",i:"⚙️",w:820,h:520,html:`
+    <div class="side">
+      <div class="sit on">🖥️ System</div><div class="sit">✨ AI & Aura</div><div class="sit">🎨 Personalization</div>
+      <div class="sit">📶 Network</div><div class="sit">🛡️ Privacy & security</div><div class="sit">⬆️ System Update</div>
+    </div>
+    <div class="main"><h2>AI & Aura</h2>
+      <div class="set-row"><span class="ic">🧠</span><div><div>On-device model</div><div class="d">Runs on the NPU. Conversations never leave this PC.</div></div><div class="sw on"></div></div>
+      <div class="set-row"><span class="ic">👁️</span><div><div>Ambient awareness</div><div class="d">Let Windows suggest actions from what's on screen. Per-app opt-in.</div></div><div class="sw on"></div></div>
+      <div class="set-row"><span class="ic">🕰️</span><div><div>Timeline memory</div><div class="d">Searchable history of what you've seen. Encrypted, local, 30-day auto-delete.</div></div><div class="sw"></div></div>
+      <div class="set-row"><span class="ic">🎙️</span><div><div>Voice wake — "Hey Aurora"</div><div class="d">Wake word detection on the NPU only.</div></div><div class="sw on"></div></div>
+      <div class="set-row"><span class="ic">🔌</span><div><div>Agent permissions</div><div class="d">Aura may control: Settings ✓ · Files ✓ · Email ✗ · Purchases ✗</div></div><div class="sw on"></div></div>
+    </div>`},
+  notes:{t:"Notepad AI",i:"📝",w:640,h:440,html:`
+    <div style="display:flex;flex-direction:column;flex:1">
+      <div class="np-bar"><span style="font-size:12px;color:#9aa3b5">ideas.txt</span>
+        <span class="np-ai" data-ai="rewrite">✨ Rewrite</span><span class="np-ai" data-ai="summar">✨ Summarize</span><span class="np-ai" data-ai="tone">✨ Fix tone</span></div>
+      <textarea class="np-ta">AuroraOS shell notes
+
+- the OS should feel like a colleague, not a filing cabinet
+- files find you (semantic search) instead of you finding files
+- AI runs local-first: NPU for privacy, cloud only on request
+- notifications arrive summarized, not one-by-one
+- updates apply live, no restarts
+- every agent action is logged + revocable</textarea>
+    </div>`},
+  edge:{t:"Browser",i:"🌐",w:820,h:520,html:`
+    <div style="display:flex;flex-direction:column;flex:1">
+      <div class="br-bar"><span style="color:#9aa3b5">←</span><span style="color:#9aa3b5">→</span><span style="color:#9aa3b5">⟳</span>
+        <div class="br-url">🔒 newtab — ask or type a URL</div><div class="cp-orb" style="width:20px;height:20px"></div></div>
+      <div class="br-nt"><h3>Where to next?</h3>
+        <div class="br-search">✨ Ask the web — answers with sources, or classic results</div>
+        <div style="display:flex;gap:22px;font-size:12px;color:#9aa3b5">
+          <span>🌐 aneek1.github.io</span><span>📰 The Verge</span><span>🐙 GitHub</span><span>▶️ YouTube</span></div>
+      </div></div>`},
+};
+function openApp(id){
+  if(open[id]){const w=open[id];w.classList.remove("mini");w.style.zIndex=++z;return}
+  const a=APPS[id];const el=document.createElement("div");el.className="win";el.dataset.app=id;
+  const px=90+Object.keys(open).length*40, py=60+Object.keys(open).length*32;
+  el.style.cssText=`left:${px}px;top:${py}px;width:${a.w}px;height:${a.h}px;z-index:${++z}`;
+  el.innerHTML=`<div class="thead"><span class="ti">${a.i}</span><b>${a.t}</b>
+    <div class="tctl"><div class="tc mn">─</div><div class="tc mx">▢</div><div class="tc x">✕</div></div></div>
+    <div class="wbody">${a.html}</div>`;
+  $("#wins").appendChild(el); open[id]=el;
+  el.addEventListener("mousedown",()=>el.style.zIndex=++z);
+  el.querySelector(".tc.x").onclick=()=>{el.remove();delete open[id];syncBar()};
+  el.querySelector(".tc.mn").onclick=()=>{el.classList.add("mini");syncBar()};
+  const mx=el.querySelector(".tc.mx");
+  mx.onclick=()=>el.classList.toggle("max");
+  mx.onmouseenter=()=>{const r=mx.getBoundingClientRect();const s=$("#snap");
+    s.style.left=(r.left-90)+"px";s.style.top=(r.bottom+6)+"px";s.classList.add("show");s.dataset.for=id};
+  mx.onmouseleave=()=>setTimeout(()=>{if(!$("#snap").matches(":hover"))$("#snap").classList.remove("show")},250);
+  drag(el); wireApp(el); syncBar();
+}
+function syncBar(){$$("[data-app]").forEach(b=>{const w=open[b.dataset.app];
+  b.classList.toggle("on",!!(w&&!w.classList.contains("mini")))})}
+function drag(el){const h=el.querySelector(".thead");let sx,sy,ox,oy,on=false;
+  h.addEventListener("mousedown",e=>{if(e.target.closest(".tc"))return;on=true;el.classList.remove("max");
+    sx=e.clientX;sy=e.clientY;ox=el.offsetLeft;oy=el.offsetTop;e.preventDefault()});
+  addEventListener("mousemove",e=>{if(!on)return;
+    el.style.left=Math.max(-100,ox+e.clientX-sx)+"px";el.style.top=Math.max(0,oy+e.clientY-sy)+"px"});
+  addEventListener("mouseup",()=>on=false)}
+document.addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o){openApp(o.dataset.open);closeAllFly()}});
+$$(".dicon").forEach(d=>d.addEventListener("dblclick",()=>openApp(d.dataset.open)));
+
+/* snap layouts */
+$("#snap").addEventListener("mouseleave",()=>$("#snap").classList.remove("show"));
+$$(".sn").forEach((s,i)=>s.onclick=()=>{
+  const ids=Object.keys(open).filter(k=>!open[k].classList.contains("mini"));
+  const cuts=i===0?[.5,.5]:i===1?[.62,.38]:[.34,.33,.33];let x=0;
+  ids.slice(0,cuts.length).forEach((id,j)=>{const w=open[id];w.classList.remove("max");
+    w.style.left=(x*innerWidth+6)+"px";w.style.top="8px";
+    w.style.width=(cuts[j]*innerWidth-12)+"px";w.style.height=(innerHeight-72)+"px";x+=cuts[j]});
+  $("#snap").classList.remove("show");
+  if(ids.length<2)toast("Open another window and snap will <b>tile them together</b>.");
+});
+
+/* per-app AI buttons */
+function wireApp(el){
+  el.querySelectorAll(".np-ai").forEach(b=>b.onclick=()=>{
+    const ta=el.querySelector(".np-ta");
+    if(b.dataset.ai==="summar")ta.value+="\n\n✨ Summary: an OS that acts like a private, local-first colleague — semantic files, digested notifications, live updates, and fully auditable agents.";
+    if(b.dataset.ai==="rewrite")toast("✨ <b>Drafted 3 rewrites</b> — pick one in the margin (concept).");
+    if(b.dataset.ai==="tone")toast("✨ Tone is already <b>clear and direct</b>. No changes needed.");
+  });
+  el.querySelectorAll(".sw").forEach(s=>s.onclick=()=>s.classList.toggle("on"));
+}
+
+/* ---------- copilot ---------- */
+function openCopilot(){$("#copilot").classList.add("show")}
+$("#b-copilot").onclick=e=>{e.stopPropagation();$("#copilot").classList.toggle("show")};
+$("#cp-close").onclick=()=>$("#copilot").classList.remove("show");
+function cpMsg(txt,who){const m=document.createElement("div");m.className="msg "+who;m.innerHTML=txt;
+  $("#cp-log").appendChild(m);$("#cp-log").scrollTop=1e9}
+function cpAsk(q){cpMsg(q,"u");setTimeout(()=>cpReply(q.toLowerCase()),600)}
+function cpReply(q){
+  if(q.includes("dark")){cpMsg("Done — I'll switch to <b>dark at sunset (7:04 pm)</b> and back at sunrise. You can undo this in Settings → Personalization. <i>(Action logged.)</i>","a")}
+  else if(q.includes("notif")||q.includes("summar")){cpMsg("<b>3 notifications, nothing urgent:</b> two vendors confirmed delivery dates (no action), and Priya asked about the Azure SQL tier — I can draft a reply recommending the serverless tier based on your usage. Want it?","a")}
+  else if(q.includes("tile")||q.includes("window")||q.includes("coding")){
+    openApp("notes");openApp("edge");
+    setTimeout(()=>{const ids=Object.keys(open);const l=open[ids[0]],r=open[ids[1]];
+      if(l){l.style.cssText+=`;left:6px;top:8px;width:${innerWidth*.62-12}px;height:${innerHeight-72}px;z-index:${++z}`}
+      if(r){r.style.cssText+=`;left:${innerWidth*.62+6}px;top:8px;width:${innerWidth*.38-12}px;height:${innerHeight-72}px;z-index:${++z}`}},250);
+    cpMsg("Tiled your editor and browser <b>62 / 38</b> — your usual coding split. Say the word and I'll save it as a <b>Focus layout</b>.","a")}
+  else if(q.includes("screenshot")||q.includes("find")){openApp("files");
+    cpMsg("Found <b>14 screenshots from last week</b> — 9 are of the ERP agent UI. I've opened Files with a semantic filter applied.","a")}
+  else if(q.includes("weather")){cpMsg("31° and humid, rain around 7 pm. If you're planning that run — go at 6.","a")}
+  else{cpMsg("In the full concept I'd handle that end-to-end: plan the steps, show you the plan, execute after approval, and log every action so it's <b>reviewable and revocable</b>. That's the core AuroraOS promise — <b>agency with an audit trail</b>.","a")}
+}
+$("#cp-send").onclick=()=>{const v=$("#cp-in").value.trim();if(v){$("#cp-in").value="";cpAsk(v)}};
+$("#cp-in").addEventListener("keydown",e=>{if(e.key==="Enter")$("#cp-send").click()});
+$$(".chip").forEach(c=>c.onclick=()=>cpAsk(c.textContent));
+
+/* ---------- context menu ---------- */
+document.addEventListener("contextmenu",e=>{
+  if(e.target.closest(".win")||e.target.closest("#bar")||e.target.closest(".fly"))return;
+  e.preventDefault();const c=$("#ctx");
+  c.style.left=Math.min(e.clientX,innerWidth-250)+"px";c.style.top=Math.min(e.clientY,innerHeight-260)+"px";
+  c.classList.add("show")});
+document.addEventListener("click",()=>$("#ctx").classList.remove("show"));
+$("#ctx-ai").onclick=()=>{openCopilot();setTimeout(()=>cpMsg("This desktop is tidy 👌 — 4 icons, all used this week. One suggestion: <b>portfolio-redesign</b> has uncommitted changes; pin a deploy shortcut here?","a"),300)};
+
+/* ---------- toast ---------- */
+let tt;function toast(html){const t=$("#toast");t.innerHTML=html;t.classList.add("show");
+  clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),4200)}
+setTimeout(()=>{if(!$("#lock").classList.contains("gone"))return;
+  toast("✨ <b>Tip:</b> click the orb in the taskbar — Copilot can actually control this concept.")},9000);
+</script>
+<script src="aurora-bridge.js"></script>
+</body>
+</html>

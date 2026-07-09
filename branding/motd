@@ -1,0 +1,3 @@
+Welcome to AuroraOS — Linux From Scratch, wearing the Windows 12 concept.
+Shell: aurora-shell.service (tty1) · Bridge: aurorad on 127.0.0.1:7212
+This TTY is yours. The kiosk is on tty1; Ctrl-Alt-F1 to return.
