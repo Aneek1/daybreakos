@@ -15,7 +15,9 @@ $WGET "$LFS_BOOK/wget-list-systemd"
 $WGET "$LFS_BOOK/md5sums"
 # ftp.gnu.org rate-limits bulk downloads; ftpmirror.gnu.org is GNU's own
 # redirector to a nearby mirror (md5sums still verifies every file)
-sed 's|ftp.gnu.org/gnu/|ftpmirror.gnu.org/gnu/|' wget-list-systemd > wget-list-mirrored
+sed -e 's|ftp.gnu.org/gnu/|ftpmirror.gnu.org/gnu/|' \
+    -e 's|https://prdownloads.sourceforge.net/expat/expat-2.6.4.tar.xz|https://github.com/libexpat/libexpat/releases/download/R_2_6_4/expat-2.6.4.tar.xz|' \
+    wget-list-systemd > wget-list-mirrored
 $WGET --input-file=wget-list-mirrored --continue --directory-prefix="$LFS/sources"
 
 echo "== verifying md5sums =="
