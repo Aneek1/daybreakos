@@ -11,12 +11,56 @@ Tiny localhost HTTP API the web shell talks to. Root service, binds
   POST /launch            {"app": "<whitelisted>"}
   POST /ask               {"q": "..."} -> heuristic reply (drop an LLM here later)
 """
-import json, os, glob, subprocess, time, urllib.parse
+import json, os, re, glob, subprocess, time, urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 PORT = 7212
 LAUNCH_WHITELIST = {"terminal": ["foot"], "editor": ["foot", "vi"]}
 START = time.time()
+HOME = "/var/lib/aurora" if os.path.isdir("/var/lib/aurora") else os.path.expanduser("~")
+APP_DIRS = ["/usr/share/applications",
+            HOME + "/.local/share/applications",
+            HOME + "/.nix-profile/share/applications",
+            "/var/lib/flatpak/exports/share/applications"]
+
+def _parse_desktop(path):
+    """Return {name, exec, icon} for a real, visible Application .desktop, else None."""
+    name = exec_ = icon = None; is_app = True; nodisplay = False
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            section = None
+            for line in f:
+                line = line.rstrip("\n")
+                if line.startswith("["): section = line; continue
+                if section != "[Desktop Entry]": continue
+                if line.startswith("Name=") and not name: name = line[5:]
+                elif line.startswith("Exec="): exec_ = line[5:]
+                elif line.startswith("Icon="): icon = line[5:]
+                elif line.startswith("Type=") and line[5:] != "Application": is_app = False
+                elif line.startswith("NoDisplay=") and line[10:].lower() == "true": nodisplay = True
+    except OSError:
+        return None
+    if not (name and exec_ and is_app) or nodisplay:
+        return None
+    exec_ = re.sub(r"%[UuFfickvmND]", "", exec_).strip()  # drop freedesktop field codes
+    return {"name": name, "exec": exec_, "icon": icon or ""}
+
+def discover_apps():
+    """Scan standard app dirs + Nix profile + ~/Apps AppImages -> {id: {name,exec,icon}}."""
+    apps = {}
+    for d in APP_DIRS:
+        if not os.path.isdir(d): continue
+        for fn in os.listdir(d):
+            if fn.endswith(".desktop"):
+                info = _parse_desktop(os.path.join(d, fn))
+                if info: apps.setdefault(fn[:-8], info)
+    appdir = HOME + "/Apps"
+    if os.path.isdir(appdir):
+        for fn in os.listdir(appdir):
+            if fn.lower().endswith(".appimage"):
+                apps.setdefault("appimage:" + fn,
+                                {"name": fn[:-9], "exec": os.path.join(appdir, fn), "icon": ""})
+    return apps
 
 def read1(path):
     try:
@@ -91,6 +135,10 @@ class H(BaseHTTPRequestHandler):
                 self._send({"path": path, "items": items})
             except OSError as e:
                 self._send({"error": str(e)}, 404)
+        elif url.path == "/apps":
+            apps = discover_apps()
+            self._send({"apps": [{"id": k, "name": v["name"], "icon": v["icon"]}
+                                 for k, v in sorted(apps.items(), key=lambda kv: kv[1]["name"].lower())]})
         else:
             self._send({"error": "not found"}, 404)
 
@@ -111,12 +159,20 @@ class H(BaseHTTPRequestHandler):
             else:
                 self._send({"error": "bad action"}, 400)
         elif self.path == "/launch":
-            cmd = LAUNCH_WHITELIST.get(data.get("app", ""))
-            if cmd:
-                subprocess.Popen(cmd, env={**os.environ, "WAYLAND_DISPLAY": "wayland-0"})
+            aid = data.get("id") or data.get("app", "")
+            env = {**os.environ, "WAYLAND_DISPLAY": "wayland-0", "MOZ_ENABLE_WAYLAND": "1"}
+            info = discover_apps().get(aid)
+            if info:  # spawn the discovered app's Exec (came from a real .desktop, not user text)
+                try:
+                    subprocess.Popen(info["exec"], shell=True, env=env)
+                    self._send({"ok": True, "launched": info["name"]})
+                except OSError as e:
+                    self._send({"error": str(e)}, 500)
+            elif aid in LAUNCH_WHITELIST:  # legacy aliases (terminal/editor)
+                subprocess.Popen(LAUNCH_WHITELIST[aid], env=env)
                 self._send({"ok": True})
             else:
-                self._send({"error": "not whitelisted"}, 403)
+                self._send({"error": "unknown app"}, 403)
         elif self.path == "/ask":
             qs = (data.get("q") or "").lower()
             if "battery" in qs:

@@ -6,47 +6,70 @@
 <title>AuroraOS — Shell</title>
 <style>
   :root{
-    --acc:#4cc2ff; --acc2:#8b5cf6;
-    --mica:rgba(28,30,38,.72); --mica2:rgba(22,24,32,.86);
+    /* Daybreak — cool aurora light over a warm dawn horizon */
+    --acc:#34e0c8; --acc2:#8b7cf6; --horizon:#f4a988;
+    --a1:#34e0c8; --a2:#6ce5a0; --a3:#8b7cf6; --a4:#f072b6;
+    --aurora:linear-gradient(90deg,#34e0c8,#6ce5a0,#8b7cf6,#f072b6);
+    --night:#0a0e1a;
+    --mica:rgba(16,20,34,.72); --mica2:rgba(13,16,28,.86);
     --stroke:rgba(255,255,255,.09); --stroke2:rgba(255,255,255,.14);
-    --txt:#f4f6fb; --mut:#9aa3b5; --faint:#6b7280;
-    --r:14px; --shadow:0 24px 70px -18px rgba(0,0,0,.65);
+    --txt:#eef1f8; --mut:#98a2ba; --faint:#6b7280;
+    --r:16px; --shadow:0 24px 70px -18px rgba(0,0,0,.7);
   }
   *{box-sizing:border-box;margin:0;padding:0;user-select:none}
   html,body{height:100%;overflow:hidden}
-  body{font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;color:var(--txt);background:#000}
+  body{font-family:"Noto Sans","Noto Sans UI",system-ui,-apple-system,sans-serif;color:var(--txt);background:var(--night)}
   #os{position:fixed;inset:0}
 
-  /* ---------- wallpaper ---------- */
+  /* ---------- wallpaper: the daybreak sky ---------- */
   .wall{position:absolute;inset:0;background:
-    radial-gradient(1100px 700px at 75% 20%, #35406e 0%, transparent 60%),
-    radial-gradient(900px 700px at 20% 85%, #1d3a5f 0%, transparent 55%),
-    radial-gradient(700px 500px at 55% 60%, rgba(139,92,246,.35) 0%, transparent 60%),
-    linear-gradient(160deg,#0b0e1a 0%,#141a2e 50%,#0d1322 100%)}
+    radial-gradient(1200px 520px at 50% -10%, rgba(139,124,246,.26) 0%, transparent 62%),
+    radial-gradient(900px 520px at 84% 8%, rgba(52,224,200,.14) 0%, transparent 60%),
+    radial-gradient(1100px 640px at 22% 112%, rgba(244,169,136,.20) 0%, transparent 60%),
+    linear-gradient(180deg,#0a0e1a 0%,#0e1424 46%,#15122a 100%)}
   .wall::after{content:"";position:absolute;inset:0;background:
-    radial-gradient(600px 400px at 60% 35%, rgba(76,194,255,.16), transparent 65%);
-    animation:breathe 14s ease-in-out infinite alternate}
-  @keyframes breathe{to{opacity:.4;transform:translateY(3%)}}
+    radial-gradient(760px 320px at 50% 2%, rgba(108,229,160,.10), transparent 70%);
+    animation:breathe 16s ease-in-out infinite alternate}
+  @keyframes breathe{to{opacity:.5;transform:translateY(2%)}}
+
+  /* ---------- aurora horizon band — the signature ---------- */
+  #aurora{position:absolute;top:0;left:0;right:0;height:140px;z-index:1;pointer-events:none;overflow:hidden;
+    -webkit-mask:linear-gradient(#000 30%,transparent);mask:linear-gradient(#000 30%,transparent)}
+  #aurora i{position:absolute;top:-46px;left:-20%;width:150%;height:150px;border-radius:50%;
+    filter:blur(30px);opacity:.5;mix-blend-mode:screen;display:block}
+  #aurora .r1{background:radial-gradient(closest-side,var(--a1),transparent);animation:drift1 19s ease-in-out infinite alternate}
+  #aurora .r2{background:radial-gradient(closest-side,var(--a2),transparent);animation:drift2 23s ease-in-out infinite alternate}
+  #aurora .r3{background:radial-gradient(closest-side,var(--a3),transparent);animation:drift3 27s ease-in-out infinite alternate}
+  #aurora .r4{background:radial-gradient(closest-side,var(--a4),transparent);opacity:.34;animation:drift1 31s ease-in-out infinite alternate-reverse}
+  #aurora::after{content:"";position:absolute;top:120px;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(108,229,160,.35),rgba(139,124,246,.4),rgba(244,169,136,.3),transparent)}
+  @keyframes drift1{from{transform:translateX(-8%) translateY(-6px) scaleY(.8)}to{transform:translateX(10%) translateY(6px) scaleY(1.1)}}
+  @keyframes drift2{from{transform:translateX(6%) scaleY(1)}to{transform:translateX(-10%) translateY(10px) scaleY(.72)}}
+  @keyframes drift3{from{transform:translateX(-4%) translateY(4px) scaleY(.9)}to{transform:translateX(14%) translateY(-4px) scaleY(1.16)}}
+  @media (prefers-reduced-motion:reduce){#aurora i,.wall::after{animation:none}}
+
+  /* ---------- aurora mark (logo) ---------- */
+  .amark{flex:0 0 auto;display:inline-block;vertical-align:middle}
 
   /* ---------- boot ---------- */
-  #boot{position:absolute;inset:0;background:#000;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:34px;z-index:200;transition:opacity .8s}
+  #boot{position:absolute;inset:0;background:
+    radial-gradient(900px 500px at 50% 30%, #12182c 0%, #070a14 70%);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:26px;z-index:200;transition:opacity .8s}
   #boot.gone{opacity:0;pointer-events:none}
-  .winlogo{display:grid;grid-template-columns:1fr 1fr;gap:5px;width:72px;height:72px}
-  .winlogo i{background:var(--acc);border-radius:6px;display:block}
-  .winlogo.grad i{background:linear-gradient(135deg,#4cc2ff,#8b5cf6)}
-  .spin{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,.15);
-    border-top-color:#fff;animation:sp 1s linear infinite}
+  .boot-word{font-size:24px;font-weight:200;letter-spacing:.5em;padding-left:.5em;color:var(--txt);text-transform:uppercase}
+  .spin{width:26px;height:26px;border-radius:50%;border:2.5px solid rgba(255,255,255,.12);
+    border-top-color:var(--a1);border-right-color:var(--a3);animation:sp 1s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
 
   /* ---------- lock ---------- */
   #lock{position:absolute;inset:0;z-index:150;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:8px;backdrop-filter:blur(0px);transition:opacity .5s,transform .5s;cursor:pointer}
   #lock.gone{opacity:0;transform:translateY(-40px);pointer-events:none}
-  #lock .time{font-size:96px;font-weight:200;letter-spacing:-.02em;line-height:1}
+  #lock .time{font-size:104px;font-weight:100;letter-spacing:-.03em;line-height:1;
+    background:linear-gradient(180deg,#fff,#cdd6e8);-webkit-background-clip:text;background-clip:text;color:transparent}
   #lock .date{font-size:22px;font-weight:400;color:#dfe5f0}
   #lock .hint{position:absolute;bottom:70px;color:#c8d0de;font-size:14px;display:flex;flex-direction:column;align-items:center;gap:14px}
-  .avatar{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,#4cc2ff,#8b5cf6);
+  .avatar{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,#34e0c8,#8b7cf6);
     display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.4)}
 
   /* ---------- desktop icons ---------- */
@@ -57,8 +80,11 @@
   .dicon .ic{font-size:34px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.4))}
 
   /* ---------- taskbar ---------- */
-  #bar{position:absolute;left:0;right:0;bottom:0;height:56px;z-index:100;display:flex;align-items:center;
-    padding:0 14px;background:var(--mica);backdrop-filter:blur(28px) saturate(1.4);border-top:1px solid var(--stroke)}
+  #bar{position:absolute;left:14px;right:14px;bottom:12px;height:58px;z-index:100;display:flex;align-items:center;
+    padding:0 12px;background:var(--mica);backdrop-filter:blur(30px) saturate(1.5);
+    border:1px solid var(--stroke2);border-radius:20px;box-shadow:0 20px 50px -22px rgba(0,0,0,.8)}
+  #bar::before{content:"";position:absolute;left:22px;right:22px;top:-1px;height:1px;border-radius:2px;
+    background:linear-gradient(90deg,transparent,rgba(52,224,200,.5),rgba(139,124,246,.5),transparent)}
   .bar-c{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:6px;align-items:center}
   .tbtn{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;
     font-size:22px;cursor:pointer;position:relative;transition:background .15s}
@@ -138,8 +164,8 @@
   .wcard h4{font-size:12.5px;color:var(--mut);font-weight:600;margin-bottom:10px;display:flex;gap:8px;align-items:center}
   .wcard .big{font-size:26px;font-weight:600}
   .wcard p{font-size:12.5px;color:var(--mut);line-height:1.55}
-  .wcard.ai{grid-column:1/-1;background:linear-gradient(135deg,rgba(76,194,255,.13),rgba(139,92,246,.13));
-    border-color:rgba(139,92,246,.35)}
+  .wcard.ai{grid-column:1/-1;background:linear-gradient(135deg,rgba(52,224,200,.13),rgba(139,124,246,.14),rgba(244,169,136,.10));
+    border-color:rgba(139,124,246,.35)}
   .wcard.ai p b{color:var(--txt)}
 
   /* ---------- copilot panel ---------- */
@@ -149,7 +175,7 @@
     opacity:0;pointer-events:none;transform:translateX(30px);transition:.25s cubic-bezier(.2,.8,.2,1)}
   #copilot.show{opacity:1;pointer-events:auto;transform:translateX(0)}
   .cp-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--stroke)}
-  .cp-orb{width:26px;height:26px;border-radius:50%;background:conic-gradient(from 0deg,#4cc2ff,#8b5cf6,#ec4899,#4cc2ff);
+  .cp-orb{width:26px;height:26px;border-radius:50%;background:conic-gradient(from 0deg,#34e0c8,#6ce5a0,#8b7cf6,#f072b6,#34e0c8);
     animation:orb 6s linear infinite}
   @keyframes orb{to{transform:rotate(360deg)}}
   .cp-head b{font-size:14px}
@@ -236,6 +262,22 @@
   .br-nt h3{font-size:22px;font-weight:600}
   .br-search{width:min(480px,90%);display:flex;gap:10px;background:rgba(255,255,255,.08);
     border:1px solid var(--stroke2);border-radius:99px;padding:12px 20px;font-size:13.5px;color:var(--faint)}
+  .br-in{flex:1;min-width:0;background:rgba(255,255,255,.07);border:1px solid var(--stroke);border-radius:99px;
+    padding:8px 16px;font-size:12.5px;color:var(--txt);outline:none;font-family:inherit;user-select:text}
+  .br-in:focus{border-color:var(--acc)}
+  .br-nav{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;
+    cursor:pointer;color:var(--mut);font-size:17px;flex:0 0 auto;user-select:none}
+  .br-nav:hover{background:rgba(255,255,255,.1);color:var(--txt)}
+  .br-view{flex:1;position:relative;background:#fff;overflow:hidden}
+  .br-home{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:22px;padding:30px;background:var(--mica2);color:var(--txt)}
+  .br-links{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:540px}
+  .br-link{display:flex;align-items:center;gap:8px;padding:10px 15px;border-radius:12px;cursor:pointer;
+    background:rgba(255,255,255,.06);border:1px solid var(--stroke);font-size:12.5px}
+  .br-link:hover{border-color:var(--acc);background:rgba(52,224,200,.09)}
+  .br-note{font-size:11.5px;color:var(--faint);max-width:470px;text-align:center;line-height:1.55}
+  .br-spin{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:5;font-size:11px;
+    color:var(--mut);background:var(--mica2);padding:5px 12px;border-radius:99px;border:1px solid var(--stroke);display:none}
 
   /* context menu */
   #ctx{position:absolute;z-index:140;width:240px;background:var(--mica2);backdrop-filter:blur(36px);
@@ -251,26 +293,66 @@
     font-size:13px;box-shadow:var(--shadow);opacity:0;transform:translateY(10px);transition:.3s;max-width:340px}
   #toast.show{opacity:1;transform:translateY(0)}
   #toast b{color:var(--acc)}
+
+  /* ---------- night light (real warm overlay) ---------- */
+  #nightlight{position:absolute;inset:0;z-index:96;pointer-events:none;mix-blend-mode:multiply;
+    background:rgba(255,255,255,0);transition:background .5s}
+  #nightlight.on{background:rgba(255,168,86,.22)}
+
+  /* ---------- light theme: actual daybreak ---------- */
+  #os.light{--txt:#141a28;--mut:#5a6478;--faint:#8a93a6;
+    --mica:rgba(255,255,255,.7);--mica2:rgba(255,255,255,.82);
+    --stroke:rgba(20,26,40,.1);--stroke2:rgba(20,26,40,.16)}
+  #os.light .wall{background:
+    radial-gradient(1200px 560px at 50% -12%, rgba(139,124,246,.22) 0%, transparent 60%),
+    radial-gradient(900px 520px at 84% 6%, rgba(52,224,200,.18) 0%, transparent 58%),
+    radial-gradient(1100px 680px at 20% 114%, rgba(244,169,136,.55) 0%, transparent 62%),
+    linear-gradient(180deg,#e9f0fb 0%,#f2ede6 58%,#f8ece2 100%)}
+  #os.light .n-card,#os.light .wcard,#os.light .qt,#os.light .set-row,#os.light .msg.a,
+  #os.light .cal,#os.light #ask,#os.light .cp-in input,#os.light .br-url,#os.light .br-search,
+  #os.light .np-ta,#os.light #search-pill,#os.light .qs-sl input{background:rgba(20,26,40,.05)}
+  #os.light .s-app:hover,#os.light .s-ri:hover,#os.light .tbtn:hover,#os.light .fit:hover,
+  #os.light .sit:hover,#os.light .tray:hover,#os.light .clock:hover,#os.light .dicon:hover{background:rgba(20,26,40,.07)}
+  #os.light .dicon{text-shadow:none}
+  #os.light .msg.a b{color:#1d7a68}
 </style>
 </head>
 <body>
 <div id="os">
   <div class="wall"></div>
+  <div id="nightlight"></div>
+
+  <!-- aurora horizon band (signature) -->
+  <div id="aurora"><i class="r1"></i><i class="r2"></i><i class="r3"></i><i class="r4"></i></div>
+
+  <!-- reusable aurora mark -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <linearGradient id="ag" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#34e0c8"/><stop offset=".5" stop-color="#8b7cf6"/><stop offset="1" stop-color="#f072b6"/>
+    </linearGradient>
+    <symbol id="mark" viewBox="0 0 32 32">
+      <path d="M4 23a12 12 0 0 1 24 0" fill="none" stroke="url(#ag)" stroke-width="3" stroke-linecap="round"/>
+      <path d="M9.5 23a6.5 6.5 0 0 1 13 0" fill="none" stroke="url(#ag)" stroke-width="2.4" stroke-linecap="round" opacity=".55"/>
+      <line x1="3.5" y1="27" x2="28.5" y2="27" stroke="url(#ag)" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+  </defs></svg>
 
   <!-- boot -->
   <div id="boot">
-    <div class="winlogo grad"><i></i><i></i><i></i><i></i></div>
+    <svg class="amark" width="76" height="76"><use href="#mark"/></svg>
+    <div class="boot-word">Aurora</div>
     <div class="spin"></div>
   </div>
 
   <!-- lock -->
   <div id="lock">
+    <svg class="amark" width="40" height="40" style="margin-bottom:22px;opacity:.95"><use href="#mark"/></svg>
     <div class="time" id="lk-time">--:--</div>
     <div class="date" id="lk-date"></div>
     <div class="hint">
       <div class="avatar">A</div>
-      <div>Aneek · Click anywhere or press Enter to sign in</div>
-      <div style="font-size:11.5px;color:#8b94a6">AuroraOS · click to sign in</div>
+      <div>Aneek · click anywhere or press Enter to sign in</div>
+      <div style="font-size:11.5px;color:#8b94a6;letter-spacing:.35em;text-transform:uppercase">Aurora · daybreak</div>
     </div>
   </div>
 
@@ -286,7 +368,7 @@
   <div id="bar">
     <div id="search-pill">🔍 <span>Search or ask anything…</span></div>
     <div class="bar-c">
-      <div class="tbtn" id="b-start" title="Start"><span class="winlogo wl grad"><i></i><i></i><i></i><i></i></span></div>
+      <div class="tbtn" id="b-start" title="Start"><svg class="amark" width="24" height="24"><use href="#mark"/></svg></div>
       <div class="tbtn" id="b-copilot" title="Aura"><div class="cp-orb" style="width:22px;height:22px"></div></div>
       <div class="tbtn" id="b-widgets" title="Widgets">🌤️</div>
       <div class="tbtn" data-open="files" data-app="files">🗂️</div>
@@ -305,6 +387,8 @@
     <div id="ask">✨<input id="ask-in" placeholder="Ask Aurora anything — open apps, find files, get things done…"></div>
     <div class="s-lab"><span>Pinned</span><span style="cursor:pointer">All apps ›</span></div>
     <div class="s-grid" id="s-pinned"></div>
+    <div class="s-lab" id="s-inst-lab" style="display:none"><span>Installed on this device</span><span style="color:var(--acc)">● live</span></div>
+    <div class="s-grid" id="s-installed"></div>
     <div class="s-lab"><span>Recommended for you</span><span style="color:#8b5cf6">✨ AI curated</span></div>
     <div class="s-rec">
       <div class="s-ri"><span class="ic">📄</span><div><div class="t">Q3 Report.docx</div><div class="d">You usually open this around now</div></div></div>
@@ -332,7 +416,7 @@
       <div class="qt"><span class="ic">🔦</span>Night light</div>
     </div>
     <div class="qs-sl">🔆 Brightness<input type="range" min="20" max="100" value="80" id="sl-bright"></div>
-    <div class="qs-sl">🔊 Volume<input type="range" min="0" max="100" value="55"></div>
+    <div class="qs-sl">🔊 Volume<input type="range" min="0" max="100" value="55" id="sl-vol"></div>
     <div class="qs-foot"><span>🔋 87% · 6 hr 12 min left</span><span style="cursor:pointer" data-open="settings">⚙️ Settings</span></div>
   </div>
 
@@ -359,13 +443,13 @@
   <div id="copilot">
     <div class="cp-head"><div class="cp-orb"></div><b>Aura</b><span>on-device · private</span><div class="cp-x" id="cp-close">✕</div></div>
     <div id="cp-log">
-      <div class="msg a">Hey Aneek 👋 I run locally on the NPU — nothing leaves this machine unless you ask. I can control settings, files, windows, and apps. Try me.</div>
+      <div class="msg a">Hey Aneek 👋 I run locally — nothing leaves this machine. I <b>actually control this desktop</b>: apps, windows, theme, brightness, toggles. Try a command below, or just tell me what you want.</div>
     </div>
     <div class="cp-chips">
-      <div class="chip">Enable dark mode at sunset</div>
-      <div class="chip">Summarize my notifications</div>
+      <div class="chip">Switch to light mode</div>
       <div class="chip">Tile my windows for coding</div>
-      <div class="chip">Find last week's screenshots</div>
+      <div class="chip">Turn on night light</div>
+      <div class="chip">Set brightness to 40</div>
     </div>
     <div class="cp-in"><input id="cp-in" placeholder="Ask, or describe what you want done…"><button class="cp-send" id="cp-send">➤</button></div>
   </div>
@@ -404,6 +488,15 @@ function tick(){
   $("#cal-date").textContent=n.toLocaleDateString([],{month:"long",day:"numeric"});
 }
 tick(); setInterval(tick,1000);
+
+/* ---------- daybreak: aurora band warms toward dawn ---------- */
+function daybreakTint(){
+  const h=new Date().getHours(), el=$("#aurora"); if(!el) return;
+  if(h>=5&&h<9){ el.style.filter="hue-rotate(-18deg) saturate(1.15) brightness(1.12)"; el.style.opacity=".98"; }      // dawn — warm rose-gold
+  else if(h>=21||h<5){ el.style.filter="hue-rotate(10deg) saturate(.85) brightness(.82)"; el.style.opacity=".72"; }   // deep night — cool, dim
+  else { el.style.filter="none"; el.style.opacity="1"; }                                                              // day
+}
+daybreakTint(); setInterval(daybreakTint,60000);
 
 /* ---------- boot / lock ---------- */
 setTimeout(()=>$("#boot").classList.add("gone"),1800);
@@ -481,15 +574,33 @@ const APPS={
 - updates apply live, no restarts
 - every agent action is logged + revocable</textarea>
     </div>`},
-  edge:{t:"Browser",i:"🌐",w:820,h:520,html:`
-    <div style="display:flex;flex-direction:column;flex:1">
-      <div class="br-bar"><span style="color:#9aa3b5">←</span><span style="color:#9aa3b5">→</span><span style="color:#9aa3b5">⟳</span>
-        <div class="br-url">🔒 newtab — ask or type a URL</div><div class="cp-orb" style="width:20px;height:20px"></div></div>
-      <div class="br-nt"><h3>Where to next?</h3>
-        <div class="br-search">✨ Ask the web — answers with sources, or classic results</div>
-        <div style="display:flex;gap:22px;font-size:12px;color:#9aa3b5">
-          <span>🌐 aneek1.github.io</span><span>📰 The Verge</span><span>🐙 GitHub</span><span>▶️ YouTube</span></div>
-      </div></div>`},
+  edge:{t:"Browser",i:"🌐",w:920,h:620,html:`
+    <div class="bx" style="display:flex;flex-direction:column;flex:1;min-width:0">
+      <div class="br-bar">
+        <span class="br-nav" data-nav="back">‹</span>
+        <span class="br-nav" data-nav="fwd">›</span>
+        <span class="br-nav" data-nav="reload">⟳</span>
+        <input class="br-in" placeholder="Search the web or type a URL" spellcheck="false">
+        <span class="br-nav" data-nav="pop" title="Open in a real browser tab">⧉</span>
+        <span class="br-nav" data-nav="home" title="Home">🏠</span>
+      </div>
+      <div class="br-view">
+        <div class="br-spin">loading…</div>
+        <iframe class="br-frame" referrerpolicy="no-referrer"
+          style="position:absolute;inset:0;width:100%;height:100%;border:0;display:none"></iframe>
+        <div class="br-home">
+          <h3 style="font-size:24px;font-weight:200;letter-spacing:.04em">Aurora Web</h3>
+          <div class="br-links">
+            <div class="br-link" data-go="https://aneek1.github.io">🌐 aneek1.github.io</div>
+            <div class="br-link" data-go="https://en.wikipedia.org">📚 Wikipedia</div>
+            <div class="br-link" data-go="https://news.ycombinator.com">🟠 Hacker News</div>
+            <div class="br-link" data-go="https://developer.mozilla.org">📖 MDN</div>
+            <div class="br-link" data-go="https://www.openstreetmap.org">🗺️ Maps</div>
+          </div>
+          <p class="br-note">Real browsing through embedded frames. A few big sites (Google, YouTube, X) refuse embedding — hit <b>⧉</b> to pop the current page into a real browser tab.</p>
+        </div>
+      </div>
+    </div>`},
 };
 function openApp(id){
   if(open[id]){const w=open[id];w.classList.remove("mini");w.style.zIndex=++z;return}
@@ -542,6 +653,33 @@ function wireApp(el){
     if(b.dataset.ai==="tone")toast("✨ Tone is already <b>clear and direct</b>. No changes needed.");
   });
   el.querySelectorAll(".sw").forEach(s=>s.onclick=()=>s.classList.toggle("on"));
+
+  /* ---- real browser wiring ---- */
+  const bx=el.querySelector(".bx");
+  if(bx){
+    const frame=bx.querySelector(".br-frame"),home=bx.querySelector(".br-home"),
+          input=bx.querySelector(".br-in"),spin=bx.querySelector(".br-spin");
+    const stack=[];let idx=-1;
+    const looksUrl=s=>/^(https?:\/\/)/i.test(s)||/^[\w-]+(\.[\w-]+)+([\/?#].*)?$/i.test(s);
+    const norm=s=>{s=s.trim();if(!s)return null;
+      if(/^(https?:\/\/)/i.test(s))return s;
+      if(looksUrl(s))return "https://"+s;
+      return "https://duckduckgo.com/?q="+encodeURIComponent(s);};
+    function render(){const u=stack[idx];if(!u){home.style.display="";frame.style.display="none";input.value="";return;}
+      home.style.display="none";frame.style.display="block";input.value=u;
+      spin.style.display="block";frame.src=u;}
+    frame.addEventListener("load",()=>spin.style.display="none");
+    function go(u){const url=norm(u);if(!url)return;stack.splice(idx+1);stack.push(url);idx=stack.length-1;render();}
+    input.addEventListener("keydown",e=>{if(e.key==="Enter"){go(input.value);input.blur();}});
+    bx.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>go(b.dataset.go));
+    bx.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>{const n=b.dataset.nav;
+      if(n==="back"&&idx>0){idx--;render();}
+      else if(n==="fwd"&&idx<stack.length-1){idx++;render();}
+      else if(n==="reload"){if(idx>=0)render();}
+      else if(n==="home"){idx=-1;render();}
+      else if(n==="pop"&&stack[idx])window.open(stack[idx],"_blank","noopener");});
+    el._browse=go;   // let Aura drive it
+  }
 }
 
 /* ---------- copilot ---------- */
@@ -551,20 +689,112 @@ $("#cp-close").onclick=()=>$("#copilot").classList.remove("show");
 function cpMsg(txt,who){const m=document.createElement("div");m.className="msg "+who;m.innerHTML=txt;
   $("#cp-log").appendChild(m);$("#cp-log").scrollTop=1e9}
 function cpAsk(q){cpMsg(q,"u");setTimeout(()=>cpReply(q.toLowerCase()),600)}
-function cpReply(q){
-  if(q.includes("dark")){cpMsg("Done — I'll switch to <b>dark at sunset (7:04 pm)</b> and back at sunrise. You can undo this in Settings → Personalization. <i>(Action logged.)</i>","a")}
-  else if(q.includes("notif")||q.includes("summar")){cpMsg("<b>3 notifications, nothing urgent:</b> two vendors confirmed delivery dates (no action), and Priya asked about the Azure SQL tier — I can draft a reply recommending the serverless tier based on your usage. Want it?","a")}
-  else if(q.includes("tile")||q.includes("window")||q.includes("coding")){
-    openApp("notes");openApp("edge");
-    setTimeout(()=>{const ids=Object.keys(open);const l=open[ids[0]],r=open[ids[1]];
-      if(l){l.style.cssText+=`;left:6px;top:8px;width:${innerWidth*.62-12}px;height:${innerHeight-72}px;z-index:${++z}`}
-      if(r){r.style.cssText+=`;left:${innerWidth*.62+6}px;top:8px;width:${innerWidth*.38-12}px;height:${innerHeight-72}px;z-index:${++z}`}},250);
-    cpMsg("Tiled your editor and browser <b>62 / 38</b> — your usual coding split. Say the word and I'll save it as a <b>Focus layout</b>.","a")}
-  else if(q.includes("screenshot")||q.includes("find")){openApp("files");
-    cpMsg("Found <b>14 screenshots from last week</b> — 9 are of the ERP agent UI. I've opened Files with a semantic filter applied.","a")}
-  else if(q.includes("weather")){cpMsg("31° and humid, rain around 7 pm. If you're planning that run — go at 6.","a")}
-  else{cpMsg("In the full concept I'd handle that end-to-end: plan the steps, show you the plan, execute after approval, and log every action so it's <b>reviewable and revocable</b>. That's the core AuroraOS promise — <b>agency with an audit trail</b>.","a")}
-}
+/* ================= Aura — local intent engine + command registry =================
+   Real, on-device (in-shell). interpret(text) -> {cmd,args,conf}; run() executes
+   against COMMANDS, which drive the actual shell. Same tool shape a future LLM calls. */
+const Aura=(()=>{
+  const APP_ALIAS={
+    files:["file","files","explorer","finder","folder","documents"],
+    edge:["browser","web","edge","chrome","internet","firefox","website"],
+    notes:["note","notes","notepad","editor","text","write","writing"],
+    settings:["setting","settings","preference","config","control panel","system"]};
+  const TILES={"wi-fi":["wifi","wi-fi","wireless","internet"],bluetooth:["bluetooth"],
+    airplane:["airplane","flight","aeroplane"],"ai aware":["ai","aura","assistant","copilot"],
+    focus:["focus","do not disturb","dnd","quiet"],"night light":["night light","nightlight","blue light","warm"]};
+  const AUDIT=[];
+  const log=(a)=>{AUDIT.push({t:Date.now(),a});};
+  const resolveApp=t=>{for(const[id,al]of Object.entries(APP_ALIAS))if(al.some(a=>t.includes(a)))return id;return null;};
+  const pct=t=>{const m=t.match(/(\d{1,3})\s*(%|percent)?/);return m?Math.max(0,Math.min(100,+m[1])):null;};
+  const wantsOff=t=>/\b(off|disable|deactivate|stop|turn off|switch off|kill|mute)\b/.test(t);
+  const wantsOn=t=>/\b(on|enable|activate|start|turn on|switch on|unmute)\b/.test(t);
+  const setSlider=(id,v)=>{const s=$("#"+id);if(!s)return;s.value=v;s.dispatchEvent(new Event("input",{bubbles:true}));};
+  const findTile=name=>[...$$(".qt")].find(q=>q.textContent.toLowerCase().includes(name));
+  const setTile=(name,on)=>{const el=findTile(name);if(!el)return false;el.classList.toggle("on",on);return true;};
+  function tile(layout){
+    let ids=Object.keys(open).filter(k=>!open[k].classList.contains("mini"));
+    const cuts=layout==="thirds"?[.34,.33,.33]:layout==="coding"?[.62,.38]:[.5,.5];
+    let x=0;ids.slice(0,cuts.length).forEach((id,j)=>{const w=open[id];w.classList.remove("max","mini");
+      w.style.left=(x*innerWidth+8)+"px";w.style.top="8px";
+      w.style.width=(cuts[j]*innerWidth-16)+"px";w.style.height=(innerHeight-84)+"px";w.style.zIndex=++z;x+=cuts[j];});
+    return ids.length;}
+
+  // registry: each command mutates the real shell and returns an honest reply string
+  const COMMANDS={
+    open_app:({app})=>{if(!app)return "Which app? I have Files, Browser, Notepad, and Settings.";
+      openApp(app);closeAllFly();log("open_app "+app);return `Opened <b>${APPS[app]?.t||app}</b>.`;},
+    close_app:({app})=>{if(!app||!open[app])return `That app isn't open.`;
+      open[app].remove();delete open[app];syncBar();log("close_app "+app);return `Closed <b>${APPS[app]?.t||app}</b>.`;},
+    tile_windows:({layout})=>{let n=Object.keys(open).filter(k=>!open[k].classList.contains("mini")).length;
+      if(layout==="coding"&&n<2){openApp("notes");openApp("edge");}
+      const done=tile(layout);log("tile "+layout);
+      return done<2?"Open a second window first — then I'll tile them together."
+        :`Tiled <b>${Math.min(done,layout==="thirds"?3:2)} windows</b> ${layout==="coding"?"62 / 38 (your coding split)":layout==="thirds"?"in thirds":"evenly"}.`;},
+    set_theme:({mode})=>{const os=$("#os");const cur=os.classList.contains("light")?"light":"dark";
+      const to=mode==="toggle"?(cur==="light"?"dark":"light"):mode;os.classList.toggle("light",to==="light");
+      log("theme "+to);return `Switched to <b>${to} theme</b>.`;},
+    set_brightness:({percent})=>{if(percent==null)return "What brightness — say a number 0–100.";
+      setSlider("sl-bright",percent);log("brightness "+percent);return `Brightness set to <b>${percent}%</b>.`;},
+    set_volume:({percent,mute})=>{const v=mute?0:percent;if(v==null)return "What volume — a number 0–100?";
+      setSlider("sl-vol",v);log("volume "+v);return mute?"Muted.":`Volume set to <b>${v}%</b>.`;},
+    toggle_setting:({name,on})=>{
+      if(name==="night light"){$("#nightlight").classList.toggle("on",on);}
+      const ok=setTile(name,on);log("toggle "+name+" "+on);
+      return ok?`${name.replace(/\b\w/g,c=>c.toUpperCase())} turned <b>${on?"on":"off"}</b>.`:`I don't have a ${name} toggle.`;},
+    lock:()=>{closeAllFly();$("#lock").classList.remove("gone");log("lock");return "Locked. 🔒";},
+    minimize_all:()=>{let n=0;Object.values(open).forEach(w=>{if(!w.classList.contains("mini")){w.classList.add("mini");n++;}});
+      syncBar();log("minimize_all");return n?`Minimized <b>${n} window${n>1?"s":""}</b> — desktop cleared.`:"Nothing to minimize.";},
+    summarize_notifications:()=>{const cards=[...$$("#noti .n-card")];if(!cards.length)return "No notifications — you're all caught up. 🎉";
+      const items=cards.map(c=>c.querySelector("b")?.textContent).filter(Boolean);
+      toggleFly("noti");log("summarize_notifications");
+      return `<b>${cards.length} notifications:</b> `+items.map(i=>`“${i}”`).join(", ")+". Opened the panel so you can act on any.";},
+    browse:({q})=>{openApp("edge");closeAllFly();const w=open.edge;
+      if(w&&w._browse)w._browse(q||"https://aneek1.github.io");log("browse "+q);
+      return `Opening the browser${q?` and going to <b>${q}</b>`:""}.`;},
+    search_files:({query})=>{openApp("files");closeAllFly();log("search_files "+query);
+      return `Opened <b>Files</b>${query?` and searched for “${query}”`:""}. On the real system this runs semantic search over your home folder.`;},
+    show_panel:({panel})=>{toggleFly(panel);log("show_panel "+panel);
+      return `Opened <b>${panel==="noti"?"notifications":panel==="qs"?"quick settings":panel}</b>.`;},
+    system_status:()=>{const tray=$("#b-qs")?.textContent||"";log("status");
+      return tray.match(/\d+%/)?`System is healthy — tray reads <b>${tray.trim()}</b>. Ask me to open Settings for detail.`
+        :"Running on AC power, network up. (Live battery/brightness appear when aurorad is connected on the real system.)";},
+    capabilities:()=>`I actually control this desktop. Try: <b>open browser</b>, <b>tile my windows for coding</b>, `+
+      `<b>switch to light mode</b>, <b>set brightness to 40</b>, <b>turn on night light</b>, <b>turn off wi-fi</b>, `+
+      `<b>summarize my notifications</b>, <b>minimize everything</b>, <b>lock</b>, <b>find my screenshots</b>. Every action is logged.`
+  };
+
+  // ordered rules — first match wins; each returns {cmd,args} or null
+  const RULES=[
+    t=>/\b(light|day) ?(mode|theme)?\b/.test(t)&&/(theme|mode|switch|turn|go|make|set)/.test(t)?{cmd:"set_theme",args:{mode:"light"}}:null,
+    t=>/\b(dark|night) ?(mode|theme)?\b/.test(t)&&/(theme|mode|switch|turn|go|make|set)/.test(t)?{cmd:"set_theme",args:{mode:"dark"}}:null,
+    t=>/\b(toggle|flip) ?(the )?(theme|mode)\b/.test(t)?{cmd:"set_theme",args:{mode:"toggle"}}:null,
+    t=>/bright/.test(t)?{cmd:"set_brightness",args:{percent:pct(t)}}:null,
+    t=>/\b(volume|sound|audio|louder|quieter|mute|unmute)\b/.test(t)?{cmd:"set_volume",args:{percent:pct(t),mute:/\bmute\b/.test(t)&&!/unmute/.test(t)}}:null,
+    t=>/\b(tile|snap|split|arrange)\b|windows for/.test(t)?{cmd:"tile_windows",args:{layout:/(coding|code|dev|work)/.test(t)?"coding":/(third|three)/.test(t)?"thirds":"even"}}:null,
+    t=>/\b(search (the )?web|google|look ?up)\b/.test(t)?{cmd:"browse",args:{q:t.replace(/.*\b(search (the )?web (for )?|google|look ?up)\b/,"").replace(/\bfor\b/,"").trim()}}:null,
+    t=>/\b(browse|go to|visit|navigate to)\b/.test(t)&&!resolveApp(t)?{cmd:"browse",args:{q:t.replace(/.*\b(browse|go to|visit|navigate to)\b/,"").replace(/\b(the|to|website|site|please)\b/g,"").trim()}}:null,
+    t=>/\bopen\b/.test(t)&&/(\.\w{2,3}\b|https?:|www\.)/.test(t)&&!resolveApp(t)?{cmd:"browse",args:{q:(t.match(/(https?:\/\/\S+|www\.\S+|[\w-]+\.\w{2,3}\S*)/)||[""])[0]}}:null,
+    t=>{for(const[name,al]of Object.entries(TILES))if(al.some(a=>t.includes(a))&&(wantsOn(t)||wantsOff(t)))return{cmd:"toggle_setting",args:{name,on:!wantsOff(t)}};return null;},
+    t=>/\b(close|quit|exit|dismiss)\b/.test(t)&&resolveApp(t)?{cmd:"close_app",args:{app:resolveApp(t)}}:null,
+    t=>/\b(minimi|show desktop|hide (all|every)|clear the desktop)\b/.test(t)?{cmd:"minimize_all",args:{}}:null,
+    t=>/\block\b/.test(t)?{cmd:"lock",args:{}}:null,
+    t=>/\b(notif|summar|what did i miss|caught? up|anything (new|important))\b/.test(t)?{cmd:"summarize_notifications",args:{}}:null,
+    t=>/\b(find|search|locate|where('?s| is| are)?)\b/.test(t)?{cmd:"search_files",args:{query:t.replace(/.*\b(find|search|locate|where('?s| is| are)?)\b/,"").replace(/\b(my|the|a|for|files?|please)\b/g,"").trim()}}:null,
+    t=>/\b(widget|weather|calendar)\b/.test(t)?{cmd:"show_panel",args:{panel:"widgets"}}:null,
+    t=>/\b(quick settings|control cent)/.test(t)?{cmd:"show_panel",args:{panel:"qs"}}:null,
+    t=>/\b(battery|status|system|cpu|memory|uptime|how much power)\b/.test(t)?{cmd:"system_status",args:{}}:null,
+    t=>/\b(open|launch|start|show|go to|bring up)\b/.test(t)&&resolveApp(t)?{cmd:"open_app",args:{app:resolveApp(t)}}:null,
+    t=>resolveApp(t)&&t.split(/\s+/).length<=3?{cmd:"open_app",args:{app:resolveApp(t)}}:null,
+    t=>/\b(help|what can you|commands|capab)/.test(t)?{cmd:"capabilities",args:{}}:null,
+  ];
+
+  function interpret(text){const t=" "+text.toLowerCase().trim()+" ";
+    for(const r of RULES){const hit=r(t);if(hit)return{...hit,conf:.9};}
+    return{cmd:"capabilities",args:{},conf:.2};}
+  function run(text){const{cmd,args}=interpret(text);return COMMANDS[cmd](args);}
+  return{interpret,run,COMMANDS,audit:AUDIT};
+})();
+
+function cpReply(q){cpMsg(Aura.run(q),"a");}
 $("#cp-send").onclick=()=>{const v=$("#cp-in").value.trim();if(v){$("#cp-in").value="";cpAsk(v)}};
 $("#cp-in").addEventListener("keydown",e=>{if(e.key==="Enter")$("#cp-send").click()});
 $$(".chip").forEach(c=>c.onclick=()=>cpAsk(c.textContent));

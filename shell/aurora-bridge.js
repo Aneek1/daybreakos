@@ -10,11 +10,29 @@
     return r.json();
   }
 
+  /* ---- installed native apps: populate the Start menu from aurorad /apps ---- */
+  let appsLoaded = false;
+  async function loadApps() {
+    try {
+      const d = await j("/apps");
+      const grid = $("#s-installed"), lab = $("#s-inst-lab");
+      if (!grid || !d.apps || !d.apps.length) return;
+      grid.innerHTML = d.apps.slice(0, 18).map((a) =>
+        `<div class="s-app" data-launch="${a.id}"><span class="ic">${a.icon && a.icon.length <= 3 ? a.icon : "📦"}</span>${a.name}</div>`).join("");
+      if (lab) lab.style.display = "";
+      grid.querySelectorAll("[data-launch]").forEach((el) => el.onclick = () => {
+        j("/launch", { method: "POST", body: JSON.stringify({ id: el.dataset.launch }) }).catch(() => {});
+        if (window.toast) window.toast(`Launching <b>${el.textContent.trim()}</b>…`);
+      });
+    } catch { /* offline in a plain browser — Start just shows the web apps */ }
+  }
+
   /* ---- status poll: battery / net / brightness ---- */
   async function poll() {
     try {
       const s = await j("/status");
       live = true;
+      if (!appsLoaded) { appsLoaded = true; loadApps(); }
       const b = s.battery || {};
       const battTxt = b.percent != null ? `🔋 ${b.percent}%` : "🔌";
       const netTxt = s.net ? "📶" : "⚠️";

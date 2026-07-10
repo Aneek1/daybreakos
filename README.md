@@ -49,8 +49,9 @@ qemu-system-x86_64 -enable-kvm -m 8G -smp 4 \
 | 7 | `scripts/07-system-config.sh` | Users, network, fstab, os-release, branding | 5 min |
 | 8 | `scripts/08-kernel.sh` | Kernel with `config/kernel.fragment` | ~30 min |
 | 9 | `scripts/09-bootloader.sh` | GRUB (UEFI) + AuroraOS entry | 5 min |
-| 10 | `scripts/10-aurora-shell.sh` | Wayland/kiosk stack, Firefox, shell, aurorad, services | 1–3 h |
-| 11 | `scripts/11-make-iso.sh` | Optional: squashfs live ISO | 20 min |
+| 10 | `scripts/10-aurora-shell.sh` | Wayland stack, Firefox, shell, aurorad, services | 1–3 h |
+| 12 | `scripts/12-apps.sh` | External apps: labwc compositor + foot + AppImage + Nix helper | 30 min |
+| 11 | `scripts/11-make-iso.sh` | Optional: squashfs live ISO (run last) | 20 min |
 
 Scripts 3–4 run on the host; 6–10 run **inside the chroot** (script 5 prints the
 exact command). Every script sources `config/build.conf` and is idempotent-ish:
@@ -79,6 +80,22 @@ Login is automatic: `aurora-shell.service` starts `cage` + Firefox in kiosk
 mode as the unprivileged `aurora` user; `aurorad.service` provides the system
 bridge on 127.0.0.1:7212. TTY2 (Ctrl-Alt-F2) gives you a normal shell —
 user `aneek`, password set during script 7.
+
+## Installing & running applications
+
+AuroraOS boots into **labwc** (a small Wayland compositor); the Aurora shell is the
+base layer and native apps float on top. Open a terminal with **Super+Return**
+(`foot`). Ways to get software onto the system:
+
+- **Nix** (recommended for CLI/dev tools). Run `aurora-get-nix` once (needs
+  network), then `nix profile install nixpkgs#<pkg>`. Installed apps appear in the
+  shell's **Installed** list automatically (aurorad scans `~/.nix-profile`).
+- **AppImage** — drop a `*.AppImage` into `~/Apps`, `chmod +x` it; it shows up in
+  the launcher and runs directly (fuse3 is built in).
+- **Build from source** (BLFS-style) for anything you want in the base.
+- **Flatpak** is planned (phase 2) — its dependency chain isn't built yet.
+
+Design + rationale: `docs/superpowers/specs/2026-07-10-external-apps-design.md`.
 
 ## Roadmap: Apple Silicon bare metal
 

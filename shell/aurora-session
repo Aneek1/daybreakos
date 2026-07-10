@@ -1,9 +1,11 @@
 #!/bin/bash
 # aurora-session — started by aurora-shell.service as the 'aurora' user.
-# cage (Wayland kiosk) running Firefox fullscreen on the shell.
+# labwc (stacking Wayland compositor). Its autostart launches the Aurora
+# shell (Firefox) as the base window; native apps float on top. Terminal:
+# Super+Return. See docs/superpowers/specs/2026-07-10-external-apps-design.md
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-export MOZ_ENABLE_WAYLAND=1
 export HOME=/var/lib/aurora
-exec cage -d -- firefox --kiosk --profile /var/lib/aurora/.mozilla/firefox/kiosk.default \
-  "file:///usr/share/aurora/shell/index.html"
+export XDG_CONFIG_HOME=$HOME/.config
+export MOZ_ENABLE_WAYLAND=1
+exec labwc
