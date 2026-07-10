@@ -1,6 +1,6 @@
 """Aura's on-device LLM layer: prompt -> llama.cpp -> validated tool calls.
 Stdlib only (ships to the LFS target). aurorad.py calls ask()."""
-import json, os, re, urllib.request, urllib.error
+import json, os, urllib.request, urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS_PATH = os.environ.get("AURA_TOOLS", os.path.join(HERE, "..", "config", "aura-tools.json"))

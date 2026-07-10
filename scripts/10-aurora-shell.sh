@@ -84,7 +84,12 @@ if [ ! -f $STAMPS/x-llama ]; then
   echo "==== extras: llama.cpp (cmake) ===="
   tb=$(ls llama.cpp-*.tar.gz 2>/dev/null | head -1)
   xt "$tb"
-  cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON \
+  # NOT -DGGML_NATIVE=ON: it emits -mcpu=native+... which gcc rejects if it doesn't
+  # know the CPU's MIDR (fails in the QEMU arm64 proof AND can fail on a fresh M4).
+  # armv8.2-a+dotprod is a safe Apple-Silicon baseline (all M-series have dotprod;
+  # big int8 matmul speedup) — proven to compile on aarch64. Bump to +i8mm/higher
+  # for more perf if your toolchain accepts it.
+  cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod \
         -DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON
   cmake --build build --config Release -j"$(nproc)" --target llama-server
   install -Dm755 build/bin/llama-server /opt/aura/bin/llama-server
