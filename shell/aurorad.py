@@ -2,14 +2,14 @@
 """aurorad — AuroraOS system bridge.
 
 Tiny localhost HTTP API the web shell talks to. Root service, binds
-127.0.0.1:7212 ONLY. Endpoints:
+127.0.0.1 only (port from $AURORAD_PORT, default 7212). Endpoints:
 
   GET  /status            battery, brightness, hostname, load, uptime, net
   GET  /files?path=~/x    list a directory (confined to /home and /usr/share/aurora)
   POST /brightness        {"percent": 0-100}
   POST /power             {"action": "poweroff"|"reboot"|"lock"}
   POST /launch            {"app": "<whitelisted>"}
-  POST /ask               {"q": "..."} -> heuristic reply (drop an LLM here later)
+  POST /ask               {"q": "..."} -> aura_llm: on-device LLM + tool-calls
 """
 import json, os, re, glob, subprocess, time, urllib.parse
 import aura_llm
@@ -179,8 +179,9 @@ class H(BaseHTTPRequestHandler):
             status = {"battery": battery(), "brightness": brightness_get(),
                       "net": net_up(), "os": "AuroraOS"}
             executors = {
-                "set_brightness": lambda a: (brightness_set(int(a.get("percent", 50)))
-                                             and f"Brightness set to {int(a.get('percent',50))}%."),
+                "set_brightness": lambda a: (f"Brightness set to {int(a.get('percent', 50))}%."
+                                             if brightness_set(int(a.get("percent", 50)))
+                                             else "This device has no software-controllable backlight."),
                 "system_status": lambda a: self._status_line(status),
             }
             self._send(aura_llm.ask(q, executors=executors, status=status))
