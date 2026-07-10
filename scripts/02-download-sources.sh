@@ -13,7 +13,10 @@ cd "$LFS/sources"
 echo "== LFS $LFS_VERSION source list =="
 $WGET "$LFS_BOOK/wget-list-systemd"
 $WGET "$LFS_BOOK/md5sums"
-$WGET --input-file=wget-list-systemd --continue --directory-prefix="$LFS/sources"
+# ftp.gnu.org rate-limits bulk downloads; ftpmirror.gnu.org is GNU's own
+# redirector to a nearby mirror (md5sums still verifies every file)
+sed 's|ftp.gnu.org/gnu/|ftpmirror.gnu.org/gnu/|' wget-list-systemd > wget-list-mirrored
+$WGET --input-file=wget-list-mirrored --continue --directory-prefix="$LFS/sources"
 
 echo "== verifying md5sums =="
 md5sum -c md5sums 2>&1 | grep -v ': OK$' || true
