@@ -84,12 +84,19 @@ if [ ! -f $STAMPS/x-llama ]; then
   echo "==== extras: llama.cpp (cmake) ===="
   tb=$(ls llama.cpp-*.tar.gz 2>/dev/null | head -1)
   xt "$tb"
-  # NOT -DGGML_NATIVE=ON: it emits -mcpu=native+... which gcc rejects if it doesn't
-  # know the CPU's MIDR (fails in the QEMU arm64 proof AND can fail on a fresh M4).
-  # armv8.2-a+dotprod is a safe Apple-Silicon baseline (all M-series have dotprod;
-  # big int8 matmul speedup) — proven to compile on aarch64. Bump to +i8mm/higher
-  # for more perf if your toolchain accepts it.
-  cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod \
+  # NOT -DGGML_NATIVE=ON: it emits -mcpu/-march=native+... which gcc rejects if it
+  # doesn't know the exact CPU (fails in the QEMU arm64 proof, can fail on a fresh
+  # M4, and picks up host-only features under an emulated/VM build). Pin a safe
+  # portable baseline per arch instead.
+  #   aarch64: armv8.2-a+dotprod — every Apple M-series has dotprod (big int8 matmul
+  #            speedup); proven to compile on aarch64.
+  #   x86_64:  x86-64-v2 (SSE4.2) — runs on any 64-bit CPU incl. VirtualBox guests;
+  #            avoids AVX-512 illegal-instruction traps under virtualization.
+  case "${AURORA_ARCH:-$(uname -m)}" in
+    aarch64) GGML_ARCHOPT="-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod";;
+    *)       GGML_ARCHOPT="-DGGML_CPU_ALL_VARIANTS=OFF -DCMAKE_C_FLAGS=-march=x86-64-v2 -DCMAKE_CXX_FLAGS=-march=x86-64-v2";;
+  esac
+  cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF $GGML_ARCHOPT \
         -DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON
   cmake --build build --config Release -j"$(nproc)" --target llama-server
   install -Dm755 build/bin/llama-server /opt/aura/bin/llama-server

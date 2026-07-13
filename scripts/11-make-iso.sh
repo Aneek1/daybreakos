@@ -55,7 +55,18 @@ menuentry "AuroraOS ${DISTRO_VERSION} — live" {
 EOF
 
 echo "== 4/4 grub-mkrescue =="
-grub-mkrescue -o "$OUT" "$WORK/iso"
+# Prefer a host grub-mkrescue; otherwise use the one built into $LFS (chroot grub).
+# The chroot grub only has the EFI platform, so the ISO is UEFI-boot only
+# (enable EFI in the VM). xorriso + mtools must be on the host PATH.
+if command -v grub-mkrescue >/dev/null; then
+  grub-mkrescue -o "$OUT" "$WORK/iso"
+elif [ -x "$LFS/usr/bin/grub-mkrescue" ]; then
+  echo "   (using chroot-built grub-mkrescue — EFI-only ISO)"
+  PATH="$LFS/usr/bin:$PATH" "$LFS/usr/bin/grub-mkrescue" \
+    -d "$LFS/usr/lib/grub" -o "$OUT" "$WORK/iso"
+else
+  echo "!! no grub-mkrescue on host or in \$LFS"; exit 1
+fi
 rm -rf "$WORK"
 echo "== done: $OUT — test with:"
 echo "   scripts/99-smoke-qemu.sh $OUT"

@@ -80,7 +80,7 @@ EOF
 fi
 
 # ---------- helpers ----------
-xt(){ local tb; tb=$(ls $1-*.tar.* 2>/dev/null | grep -E "$1-[0-9]" | head -1)
+xt(){ local tb; tb=$(ls *.tar.* 2>/dev/null | grep -iE "^$1-[0-9]" | head -1)
       [ -n "$tb" ] || { echo "!! source for $1 not found"; exit 1; }
       SRCDIR=$(tar tf "$tb" | head -1 | cut -d/ -f1)
       rm -rf "$SRCDIR"; tar xf "$tb"; cd "$SRCDIR"; }
@@ -121,7 +121,7 @@ bld(){
   echo "==== building $1 ===="
   xt $1
   case $1 in
-    man-pages) rm -v man3/crypt* 2>/dev/null||true; make prefix=/usr install;;
+    man-pages) rm -v man3/crypt* 2>/dev/null||true; make -R GIT=false prefix=/usr install;;
     iana-etc)  cp -v services protocols /etc;;
     glibc)
       patch -Np1 -i ../glibc-*-fhs-1.patch
@@ -164,7 +164,8 @@ EOF
     lz4)       make BUILD_STATIC=no PREFIX=/usr; make BUILD_STATIC=no PREFIX=/usr install;;
     zstd)      make prefix=/usr; make prefix=/usr install; rm -v /usr/lib/libzstd.a;;
     file)      generic file;;
-    readline)  generic readline "--disable-static --with-curses";;
+    readline)  ./configure --prefix=/usr --disable-static --with-curses;
+               make SHLIB_LIBS="-lncursesw"; make SHLIB_LIBS="-lncursesw" install;;
     m4)        generic m4;;
     bc)        CC=gcc ./configure --prefix=/usr -G -O3 -r; make; make install;;
     flex)      generic flex "--docdir=/usr/share/doc/flex --disable-static"
@@ -207,7 +208,7 @@ EOF
       ln -sfv ../../libexec/gcc/$(gcc -dumpmachine)/$(gcc -dumpversion)/liblto_plugin.so /usr/lib/bfd-plugins/ 2>/dev/null||true
       # sanity
       echo 'int main(){}' > dummy.c; cc dummy.c -v -Wl,--verbose &> dummy.log
-      readelf -l a.out | grep -q ': /usr/lib/ld-linux' || { echo "!! gcc sanity FAILED — see LFS 8.29"; exit 1; }
+      readelf -l a.out | grep -qE 'interpreter: /.*ld-linux' || { echo "!! gcc sanity FAILED — see LFS 8.29"; exit 1; }
       rm dummy.c a.out dummy.log
       mkdir -pv /usr/share/gdb/auto-load/usr/lib
       mv -v /usr/lib/*gdb.py /usr/share/gdb/auto-load/usr/lib 2>/dev/null||true
@@ -227,14 +228,21 @@ EOF
                  ln -sfv ${lib}w.pc /usr/lib/pkgconfig/${lib}.pc
                done
                ln -sfv libncursesw.so /usr/lib/libcurses.so;;
-    sed|psmisc|grep|gdbm|gperf|expat|less|libpipeline|make|patch|man-db) generic $1;;
+    sed|psmisc|grep|gdbm|gperf|expat|less|libpipeline|make|patch) generic $1;;
+    man-db)    ./configure --prefix=/usr --docdir=/usr/share/doc/man-db-2.13.0 \
+                 --sysconfdir=/etc --disable-setuid --enable-cache-owner=bin \
+                 --with-browser=/usr/bin/lynx --with-vgrind=/usr/bin/vgrind \
+                 --with-grap=/usr/bin/grap --with-systemdtmpfilesdir= \
+                 --with-systemdsystemunitdir=
+               make; make install;;
     gettext)   generic gettext "--disable-static --docdir=/usr/share/doc/gettext"
                chmod -v 0755 /usr/lib/preloadable_libintl.so;;
     bison)     generic bison "--docdir=/usr/share/doc/bison";;
     bash)      generic bash "--without-bash-malloc --with-installed-readline --docdir=/usr/share/doc/bash"
                ;;
     libtool)   generic libtool; rm -fv /usr/lib/libltdl.a;;
-    inetutils) ./configure --prefix=/usr --bindir=/usr/bin --localstatedir=/var \
+    inetutils) CFLAGS="-O2 -Wno-implicit-function-declaration" \
+               ./configure --prefix=/usr --bindir=/usr/bin --localstatedir=/var \
                  --disable-logger --disable-whois --disable-rcp --disable-rexec \
                  --disable-rlogin --disable-rsh --disable-servers
                make; make install
@@ -263,13 +271,13 @@ EOF
     Python)    ./configure --prefix=/usr --enable-shared --with-system-expat --enable-optimizations
                make; make install
                ln -sfv python3 /usr/bin/python;;
-    flit_core) pip3 install --no-index --no-build-isolation --find-links . flit_core || \
-               python3 -m pip install --no-index --find-links . flit_core;;
-    wheel)     pip3 install --no-index --find-links . wheel;;
-    setuptools) pip3 install --no-index --find-links . setuptools;;
+    flit_core|wheel|setuptools|meson)
+               # build a wheel from the source tree, then install it (--find-links .
+               # can't resolve a dist from an unbuilt source dir)
+               pip3 wheel -w dist --no-build-isolation --no-deps "$PWD"
+               pip3 install --no-index --no-build-isolation --find-links dist "$1";;
     ninja)     python3 configure.py --bootstrap
                install -vm755 ninja /usr/bin/;;
-    meson)     pip3 install --no-index --find-links . meson || { python3 setup.py install; };;
     coreutils) patch -Np1 -i ../coreutils-*-i18n-*.patch 2>/dev/null||true
                autoreconf -fv 2>/dev/null||true
                FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr \
@@ -282,6 +290,8 @@ EOF
     groff)     PAGE=A4 generic groff;;
     grub)      unset {C,CPP,CXX,LD}FLAGS
                case $(uname -m) in aarch64) GT=arm64;; *) GT=x86_64;; esac
+               # LFS 12.3: release tarball ships without this generated file
+               echo depends bli part_gpt > grub-core/extra_deps.lst
                ./configure --prefix=/usr --sysconfdir=/etc --disable-efiemu --disable-werror \
                  --with-platform=efi --target=$GT --program-prefix=""
                make; make install
@@ -303,8 +313,9 @@ set mouse=
 syntax on
 EOF
                ;;
-    MarkupSafe) pip3 install --no-index --find-links . MarkupSafe;;
-    Jinja2)    pip3 install --no-index --find-links . Jinja2;;
+    MarkupSafe|Jinja2)
+               pip3 wheel -w dist --no-build-isolation --no-deps "$PWD"
+               pip3 install --no-index --no-build-isolation --find-links dist "$1";;
     systemd)   sed -i -e 's/GROUP="render"/GROUP="video"/' -e 's/GROUP="sgx", //' rules.d/50-udev-default.rules.in
                mkdir build; cd build
                meson setup --prefix=/usr --buildtype=release \
@@ -340,11 +351,11 @@ EOF
 }
 
 # build order (LFS ch. 8) — libffi/Python before meson/ninja; systemd late
-for p in man-pages iana-etc glibc zlib bzip2 xz lz4 zstd file readline m4 bc flex \
+for p in man-pages iana-etc glibc zlib bzip2 xz lz4 zstd file m4 flex \
          binutils gmp mpfr mpc attr acl libcap libxcrypt shadow gcc pkgconf ncurses \
-         sed psmisc gettext bison grep bash libtool gdbm gperf expat inetutils less \
-         perl XML-Parser intltool autoconf automake openssl kmod elfutils libffi \
-         Python flit_core wheel setuptools ninja meson coreutils diffutils gawk \
+         readline bc sed psmisc gettext bison grep bash libtool gdbm gperf expat inetutils less \
+         perl XML-Parser intltool autoconf automake openssl elfutils libffi \
+         Python flit_core wheel setuptools ninja meson kmod coreutils diffutils gawk \
          findutils groff grub gzip iproute2 kbd libpipeline make patch texinfo vim \
          MarkupSafe Jinja2 systemd dbus man-db procps-ng util-linux e2fsprogs; do
   bld $p
