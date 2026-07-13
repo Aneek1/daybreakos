@@ -17,9 +17,9 @@ if [ ! -f $STAMPS/kernel ]; then
   make olddefconfig
   make
   make modules_install
-  cp -iv $KERNEL_IMAGE /boot/vmlinuz-aurora
-  cp -iv System.map /boot/System.map-aurora
-  cp -iv .config /boot/config-aurora
+  cp -vf $KERNEL_IMAGE /boot/vmlinuz-aurora
+  cp -vf System.map /boot/System.map-aurora
+  cp -vf .config /boot/config-aurora
   cd /sources
   touch $STAMPS/kernel
 fi

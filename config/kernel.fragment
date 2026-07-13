@@ -30,6 +30,12 @@ CONFIG_DRM_FBDEV_EMULATION=y
 CONFIG_DRM_VIRTIO_GPU=y
 CONFIG_DRM_SIMPLEDRM=y
 CONFIG_FRAMEBUFFER_CONSOLE=y
+# hand the EFI/firmware GOP framebuffer to simpledrm as a "simple-framebuffer"
+# platform device — WITHOUT this the boot console is black on EFI (simpledrm has
+# nothing to bind to). Required for a visible console in VirtualBox and on real
+# EFI hardware that lacks a native KMS driver.
+CONFIG_SYSFB=y
+CONFIG_SYSFB_SIMPLEFB=y
 # input
 CONFIG_INPUT_EVDEV=y
 CONFIG_INPUT_MOUSEDEV=y

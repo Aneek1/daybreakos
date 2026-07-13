@@ -4,6 +4,11 @@ CONFIG_DRM_I915=y
 CONFIG_DRM_AMDGPU=y
 CONFIG_DRM_QXL=y
 CONFIG_DRM_BOCHS=y
+# VirtualBox virtual GPUs: VBOXVIDEO drives VBoxVGA/VBoxSVGA, VMWGFX drives the
+# default VMSVGA adapter. Native KMS so the desktop gets proper resolution;
+# simpledrm (see common fragment) covers the boot console before these load.
+CONFIG_DRM_VBOXVIDEO=y
+CONFIG_DRM_VMWGFX=y
 # network
 CONFIG_E1000=y
 CONFIG_E1000E=y
