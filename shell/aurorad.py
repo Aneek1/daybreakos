@@ -11,7 +11,7 @@ Tiny localhost HTTP API the web shell talks to. Root service, binds
   POST /launch            {"app": "<whitelisted>"}
   POST /ask               {"q": "..."} -> aura_llm: on-device LLM + tool-calls
 """
-import json, os, re, glob, subprocess, time, urllib.parse
+import json, os, re, glob, subprocess, time, urllib.parse, urllib.request, shutil
 import aura_llm
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -105,9 +105,345 @@ def safe_path(p):
     if p.startswith(("/home", "/usr/share/aurora", "/tmp")): return p
     return "/home"
 
+# ---------------- Aurora Store: catalog + AppImage install ----------------
+# Apps are installed by downloading their AppImage, extracting it (no FUSE
+# needed via --appimage-extract), and writing a .desktop into the user's app
+# dir so it appears in the launcher/dock like any other app.
+APPS_HOME   = HOME + "/Applications"
+DESKTOP_DIR = HOME + "/.local/share/applications"
+
+def _catalog_path():
+    here = os.path.dirname(os.path.abspath(__file__))
+    for c in ("/usr/share/aurora/store/catalog",
+              "/opt/aura/store/catalog",
+              os.path.join(here, "..", "store", "catalog"),
+              "/aurora/store/catalog"):
+        if os.path.exists(c):
+            return c
+    return "/usr/share/aurora/store/catalog"
+
+def load_catalog():
+    """Catalog is pipe-delimited so the C shell can read the same file:
+       id|name|category|icon|description|github-repo-or-direct-url"""
+    apps = []
+    try:
+        with open(_catalog_path(), encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                p = line.split("|")
+                if len(p) < 6:
+                    continue
+                app = {"id": p[0].strip(), "name": p[1].strip(), "category": p[2].strip(),
+                       "icon": p[3].strip(), "description": p[4].strip()}
+                src = p[5].strip()
+                app["url" if src.startswith("http") else "github"] = src
+                apps.append(app)
+    except OSError:
+        pass
+    return apps
+
+def _installed_store_ids():
+    if not os.path.isdir(APPS_HOME):
+        return set()
+    return {d for d in os.listdir(APPS_HOME)
+            if os.path.isdir(os.path.join(APPS_HOME, d))}
+
+def store_catalog():
+    inst = _installed_store_ids()
+    return {"apps": [{**a, "installed": a.get("id") in inst} for a in load_catalog()]}
+
+def _resolve_url(app):
+    """A catalog entry may pin a direct 'url' or name a 'github' repo whose latest
+    release's x86_64 AppImage we resolve at install time (survives version bumps)."""
+    if app.get("url"):
+        return app["url"]
+    gh = app.get("github")
+    if not gh:
+        return None
+    try:
+        api = "https://api.github.com/repos/%s/releases/latest" % gh
+        req = urllib.request.Request(api, headers={"User-Agent": "AuroraStore/1.0"})
+        assets = json.loads(urllib.request.urlopen(req, timeout=45).read()).get("assets", [])
+        for a in assets:
+            if "x86_64" in a.get("name", "") and a["name"].endswith(".AppImage"):
+                return a["browser_download_url"]
+        for a in assets:
+            if a.get("name", "").endswith(".AppImage"):
+                return a["browser_download_url"]
+    except Exception:
+        return None
+    return None
+
+def _ar_members(path):
+    """Yield (name, bytes) for each member of a Unix 'ar' archive (the .deb container)."""
+    with open(path, "rb") as f:
+        if f.read(8) != b"!<arch>\n":
+            return
+        while True:
+            hdr = f.read(60)
+            if len(hdr) < 60:
+                break
+            name = hdr[0:16].decode("ascii", "replace").strip().rstrip("/")
+            try:
+                size = int(hdr[48:58].decode("ascii").strip() or "0")
+            except ValueError:
+                break
+            data = f.read(size)
+            if size & 1:
+                f.read(1)  # members are 2-byte aligned
+            yield name, data
+
+
+def _dest_desktop(dest, app_id, app):
+    """Build a launcher for an app tree unpacked under dest (from a .deb's data.tar).
+    Reads the app's own bundled .desktop, remaps its absolute Exec/Icon into dest, and
+    appends --no-sandbox for Electron (the unpacked chrome-sandbox isn't setuid root)."""
+    import shlex
+    apps_dir = os.path.join(dest, "usr", "share", "applications")
+    exec_line = icon = name = None
+    if os.path.isdir(apps_dir):
+        cands = sorted(f for f in os.listdir(apps_dir)
+                       if f.endswith(".desktop") and "url-handler" not in f)
+        for fn in cands:
+            try:
+                for l in open(os.path.join(apps_dir, fn), encoding="utf-8", errors="replace"):
+                    if l.startswith("Exec=") and not exec_line: exec_line = l[5:].strip()
+                    elif l.startswith("Icon=") and not icon:     icon = l[5:].strip()
+                    elif l.startswith("Name=") and not name:     name = l[5:].strip()
+            except OSError:
+                continue
+            if exec_line:
+                break
+    # resolve the executable to a real path inside dest
+    binpath = None
+    if exec_line:
+        toks = [t for t in shlex.split(exec_line) if not t.startswith("%")]
+        if toks:
+            b = toks[0]
+            cand = os.path.join(dest, b.lstrip("/")) if b.startswith("/") \
+                   else os.path.join(dest, "usr", "bin", b)
+            if os.path.islink(cand):  # deb symlinks are absolute -> remap into dest
+                tgt = os.readlink(cand)
+                cand = os.path.join(dest, tgt.lstrip("/")) if tgt.startswith("/") \
+                       else os.path.realpath(os.path.join(os.path.dirname(cand), tgt))
+            if os.path.exists(cand):
+                binpath = cand
+    if not binpath:  # fallback: first executable under usr/bin
+        ub = os.path.join(dest, "usr", "bin")
+        if os.path.isdir(ub):
+            for f in sorted(os.listdir(ub)):
+                p = os.path.join(ub, f)
+                if os.path.isfile(p) and os.access(p, os.X_OK):
+                    binpath = p; break
+    if not binpath:
+        return None, None
+    # electron apps need --no-sandbox when unpacked (no setuid chrome-sandbox)
+    is_electron = os.path.exists(os.path.join(os.path.dirname(binpath), "chrome-sandbox")) \
+                  or os.path.exists(os.path.join(os.path.dirname(binpath), "chrome_crashpad_handler"))
+    cmd = shlex.quote(binpath) + (" --no-sandbox" if is_electron else "")
+    # resolve an icon file inside dest, else keep the themed name
+    icon_path = icon or app.get("icon", "")
+    if icon and not icon.startswith("/"):
+        for root in ("usr/share/pixmaps", "usr/share/icons"):
+            base = os.path.join(dest, root)
+            for dp, _dn, fns in os.walk(base) if os.path.isdir(base) else []:
+                for fn in fns:
+                    if fn.startswith(icon + ".") and fn.rsplit(".", 1)[-1] in ("png", "svg", "xpm"):
+                        icon_path = os.path.join(dp, fn); break
+                if icon_path.startswith("/"): break
+            if icon_path.startswith("/"): break
+    return cmd, (icon_path if icon_path.startswith("/") else "application-x-executable")
+
+
+def _install_deb(debpath, app_id, app):
+    """Install a Debian package without dpkg: unpack its data.tar into ~/Applications/<id>
+    and register a launcher pointing at the app inside that tree."""
+    import io, tarfile
+    blob = comp = None
+    for name, data in _ar_members(debpath):
+        if name.startswith("data.tar"):
+            blob, comp = data, name.rsplit(".", 1)[-1]
+            break
+    if blob is None:
+        return {"ok": False, "error": "not a valid .deb (no data.tar)"}
+    # Stream-decompress straight into tarfile (mode "r|<c>") rather than materialising
+    # the whole ~550MB decompressed archive in RAM — the live home is tmpfs, so peak
+    # memory matters. zstd (rare) is piped through the zstd tool first.
+    mode = {"xz": "r|xz", "lzma": "r|xz", "gz": "r|gz", "bz2": "r|bz2", "tar": "r|"}.get(comp)
+    src = blob
+    if mode is None:
+        if comp == "zst":
+            z = subprocess.run(["zstd", "-d", "-c"], input=blob,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if z.returncode != 0:
+                return {"ok": False, "error": "this .deb uses zstd; zstd tool unavailable"}
+            src, mode = z.stdout, "r|"
+        else:
+            return {"ok": False, "error": "unsupported .deb compression: %s" % comp}
+    dest = os.path.join(APPS_HOME, app_id)
+    if os.path.islink(dest) or os.path.isfile(dest):
+        os.remove(dest)
+    else:
+        shutil.rmtree(dest, ignore_errors=True)
+    os.makedirs(dest, exist_ok=True)
+    try:
+        with tarfile.open(fileobj=io.BytesIO(src), mode=mode) as t:
+            try:
+                t.extractall(dest, filter="data")   # py3.12+: strips setuid/absolute paths
+            except TypeError:
+                t.extractall(dest)
+    except Exception as e:
+        return {"ok": False, "error": "could not unpack .deb: %s" % e}
+    cmd, icon = _dest_desktop(dest, app_id, app)
+    if not cmd:
+        return {"ok": False, "error": "installed, but no launchable program was found in the package"}
+    os.makedirs(DESKTOP_DIR, exist_ok=True)
+    with open(os.path.join(DESKTOP_DIR, "aurora-store-%s.desktop" % app_id), "w",
+              encoding="utf-8") as f:
+        f.write("[Desktop Entry]\nType=Application\n"
+                "Name=%s\nComment=%s\nExec=%s\nIcon=%s\nCategories=%s;\nTerminal=false\n"
+                % (app.get("name", app_id), app.get("description", ""), cmd,
+                   icon, app.get("category", "Utility")))
+    return {"ok": True, "installed": app.get("name", app_id)}
+
+
+def store_install(app_id):
+    app = {a.get("id"): a for a in load_catalog()}.get(app_id)
+    if not app:
+        return {"ok": False, "error": "unknown app"}
+    url = _resolve_url(app)
+    if not url:
+        return {"ok": False, "error": "couldn't find a download for this app"}
+    os.makedirs(APPS_HOME, exist_ok=True)
+    os.makedirs(DESKTOP_DIR, exist_ok=True)
+    tmp = "/tmp/%s.AppImage" % app_id
+    work = "/tmp/extract-%s" % app_id
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "AuroraStore/1.0"})
+        with urllib.request.urlopen(req, timeout=600) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f)
+        os.chmod(tmp, 0o755)
+        # A .deb is a Unix 'ar' archive; detect by magic and take the dpkg-free path.
+        with open(tmp, "rb") as mf:
+            magic = mf.read(8)
+        if magic == b"!<arch>\n":
+            return _install_deb(tmp, app_id, app)
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work, exist_ok=True)
+        ex = subprocess.run([tmp, "--appimage-extract"], cwd=work,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Some AppImages (e.g. pkgforge "anylinux" builds) extract to AppDir/ and
+        # leave squashfs-root as a compat *symlink* to it. Resolve to the real
+        # directory so we move the tree, not a link that dangles once relocated.
+        src = os.path.realpath(os.path.join(work, "squashfs-root"))
+        if ex.returncode != 0 or not os.path.isdir(src):
+            return {"ok": False, "error": "could not unpack the app"}
+        dest = os.path.join(APPS_HOME, app_id)
+        # Clear any prior install robustly: dest may be a real dir, a broken/stale
+        # symlink, or a plain file. rmtree(ignore_errors) silently no-ops on a
+        # symlink, which would make the move land *inside* the old target — so
+        # handle links/files explicitly before falling back to rmtree.
+        if os.path.islink(dest) or os.path.isfile(dest):
+            os.remove(dest)
+        else:
+            shutil.rmtree(dest, ignore_errors=True)
+        shutil.move(src, dest)
+        if not os.path.exists(os.path.join(dest, "AppRun")):
+            return {"ok": False, "error": "app unpacked but no AppRun launcher was found"}
+        # Do NOT force the Wayland backend: many AppImages bundle a GTK that crashes
+        # on Wayland (their linuxdeploy hook sets GDK_BACKEND=x11 for exactly that
+        # reason). We ship Xwayland, so leaving them on X11 is both stable and correct.
+        icon = os.path.join(dest, ".DirIcon")
+        with open(os.path.join(DESKTOP_DIR, "aurora-store-%s.desktop" % app_id),
+                  "w", encoding="utf-8") as f:
+            f.write("[Desktop Entry]\nType=Application\n"
+                    "Name=%s\nComment=%s\nExec=%s\nIcon=%s\nCategories=%s;\nTerminal=false\n"
+                    % (app.get("name", app_id), app.get("description", ""),
+                       os.path.join(dest, "AppRun"),
+                       icon if os.path.exists(icon) else "application-x-executable",
+                       app.get("category", "Utility")))
+        return {"ok": True, "installed": app.get("name", app_id)}
+    except Exception as e:
+        return {"ok": False, "error": "install failed: %s" % e}
+    finally:
+        try: os.remove(tmp)
+        except OSError: pass
+        shutil.rmtree(work, ignore_errors=True)
+
+def store_remove(app_id):
+    shutil.rmtree(os.path.join(APPS_HOME, app_id), ignore_errors=True)
+    d = os.path.join(DESKTOP_DIR, "aurora-store-%s.desktop" % app_id)
+    try: os.remove(d)
+    except OSError: pass
+    return {"ok": True}
+
+# ----- persistent storage -----------------------------------------------
+# The live root is overlay(lowerdir=squashfs, upperdir=tmpfs), so every change
+# lives in RAM and is lost on reboot. If a disk is labelled AURORA_DATA the
+# initramfs uses it as the overlay upperdir instead of tmpfs, making the whole
+# system delta (installed apps, pins, settings, home) persist. persist_setup()
+# formats a blank attached disk with that label; the user reboots to activate.
+PERSIST_LABEL = "AURORA_DATA"
+
+def _lsblk_disks():
+    """Whole disks as dicts {name, fstype, child(bool), size, ro(bool)}."""
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "-Ppno", "NAME,TYPE,FSTYPE,SIZE,RO"], text=True)
+    except Exception:
+        return []
+    rows = [dict(re.findall(r'(\w+)="([^"]*)"', ln)) for ln in out.splitlines() if ln.strip()]
+    disks = [r for r in rows if r.get("TYPE") == "disk"]
+    parts = [r for r in rows if r.get("TYPE") == "part"]
+    res = []
+    for d in disks:
+        name = d.get("NAME", "")
+        res.append({"name": name, "fstype": d.get("FSTYPE", ""),
+                    "child": any(p.get("NAME", "").startswith(name) for p in parts),
+                    "size": d.get("SIZE", ""), "ro": d.get("RO") == "1"})
+    return res
+
+def _blank_disk():
+    """A whole, writable disk with no filesystem and no partitions, or None.
+    Never returns a disk that already holds data — safe to format."""
+    for d in _lsblk_disks():
+        if not d["ro"] and d["fstype"] == "" and not d["child"]:
+            return d["name"]
+    return None
+
+def persist_status():
+    return {"active": os.path.exists("/dev/disk/by-label/" + PERSIST_LABEL),
+            "candidate": _blank_disk()}
+
+def persist_setup():
+    st = persist_status()
+    if st["active"]:
+        return {"ok": True, "already": True,
+                "message": "Persistent storage is already active."}
+    dev = st["candidate"]
+    if not dev:
+        return {"error": "No blank disk found. Add a second, empty virtual "
+                         "hard disk to the VM (VirtualBox: Settings > Storage > "
+                         "add a new VDI), then try again."}
+    try:
+        subprocess.check_output(
+            ["mkfs.ext4", "-F", "-q", "-L", PERSIST_LABEL, dev],
+            stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        return {"error": "Format failed: " + (e.output or b"").decode("utf-8", "replace")[:200]}
+    except Exception as e:
+        return {"error": "Format failed: %s" % e}
+    return {"ok": True, "device": dev,
+            "message": "Persistent storage ready on %s. Restart now — from then "
+                       "on your apps and settings are saved across reboots." % dev}
+
 class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
-        body = json.dumps(obj).encode()
+        # ensure_ascii=False so unicode (em-dashes, accents, emoji) goes out as
+        # UTF-8 rather than \uXXXX escapes the shell's tiny JSON reader can't decode.
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -140,6 +476,10 @@ class H(BaseHTTPRequestHandler):
             apps = discover_apps()
             self._send({"apps": [{"id": k, "name": v["name"], "icon": v["icon"]}
                                  for k, v in sorted(apps.items(), key=lambda kv: kv[1]["name"].lower())]})
+        elif url.path == "/store/catalog":
+            self._send(store_catalog())
+        elif url.path == "/system/persist-status":
+            self._send(persist_status())
         else:
             self._send({"error": "not found"}, 404)
 
@@ -147,7 +487,13 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         try: data = json.loads(self.rfile.read(n) or b"{}")
         except json.JSONDecodeError: return self._send({"error": "bad json"}, 400)
-        if self.path == "/brightness":
+        if self.path == "/store/install":
+            self._send(store_install(data.get("id", "")))
+        elif self.path == "/system/persist-setup":
+            self._send(persist_setup())
+        elif self.path == "/store/remove":
+            self._send(store_remove(data.get("id", "")))
+        elif self.path == "/brightness":
             ok = brightness_set(int(data.get("percent", 50)))
             self._send({"ok": ok})
         elif self.path == "/power":
@@ -281,4 +627,4 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 if __name__ == "__main__":
-    HTTPServer(("127.0.0.1", PORT), H).serve_forever()
+    HTTPServer((os.environ.get("AURORAD_BIND", "127.0.0.1"), PORT), H).serve_forever()

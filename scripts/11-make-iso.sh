@@ -33,7 +33,16 @@ i=0; while [ $i -lt 20 ]; do
   sleep 1; i=$((i+1))
 done
 mount -t squashfs -o ro,loop /mnt/cd/live/rootfs.squashfs /mnt/ro
-mount -t tmpfs none /mnt/rw
+# Persistence: if a disk is labelled AURORA_DATA, use it as the writable overlay
+# upper so the whole system delta (apps, pins, settings, home) survives reboots.
+# Otherwise fall back to tmpfs (ephemeral live session). Format via the shell's
+# "Enable Persistent Storage" menu item (aurorad mkfs.ext4 -L AURORA_DATA).
+PDEV=$(findfs LABEL=AURORA_DATA 2>/dev/null)
+if [ -n "$PDEV" ] && mount -t ext4 "$PDEV" /mnt/rw 2>/dev/null; then
+  echo "aurora: persistent storage on $PDEV"
+else
+  mount -t tmpfs none /mnt/rw
+fi
 mkdir -p /mnt/rw/upper /mnt/rw/work
 mount -t overlay -o lowerdir=/mnt/ro,upperdir=/mnt/rw/upper,workdir=/mnt/rw/work overlay /mnt/newroot
 mkdir -p /mnt/newroot/run

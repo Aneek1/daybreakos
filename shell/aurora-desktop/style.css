@@ -28,6 +28,14 @@ label, button { color: #eef1f8; font-family: "Noto Sans", sans-serif; }
 }
 #logo { font-weight: 700; font-size: 14px; padding: 0 6px; }
 #logo .mark { color: #34e0c8; font-size: 17px; }
+.logobtn { background: transparent; border: none; box-shadow: none; padding: 2px 4px; border-radius: 9px; }
+.logobtn:hover { background-color: rgba(255,255,255,0.09); }
+
+/* dark dropdown menus (Aurora logo menu + wallpaper context menu) */
+menu, .menu { background-color: rgba(16,20,34,0.98); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px; padding: 6px; }
+menu menuitem { color: #eef1f8; padding: 8px 14px; border-radius: 8px; font-size: 13px; }
+menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.10); }
 #clock { font-size: 13.5px; font-weight: 600; }
 #clock:hover, .tbtn:hover { background-color: rgba(255,255,255,0.09); }
 .tbtn {
@@ -50,6 +58,29 @@ label, button { color: #eef1f8; font-family: "Noto Sans", sans-serif; }
   font-size: 30px; min-width: 52px; min-height: 52px;
 }
 .dbtn:hover { background-color: rgba(255,255,255,0.10); }
+
+/* running-window taskbar buttons in the dock */
+.docksep { background-color: rgba(255,255,255,0.16); min-width: 1px; margin: 8px 2px; }
+.taskbtn {
+  background: transparent; border: none; box-shadow: none;
+  color: rgba(255,255,255,0.82);
+  padding: 6px 12px; border-radius: 12px; min-height: 40px;
+  font-size: 13px;
+}
+.taskbtn:hover { background-color: rgba(255,255,255,0.10); }
+.taskbtn.active {
+  background-color: rgba(52,224,200,0.18);
+  color: #eafffb;
+  box-shadow: inset 0 -2px 0 #34e0c8;
+}
+
+/* boot splash */
+#splash { background-color: #0b1120; }
+#splash-name {
+  color: #eafffb; font-size: 30px; font-weight: 700;
+  letter-spacing: 3px;
+}
+#splash-sub { color: rgba(148,197,255,0.75); font-size: 14px; letter-spacing: 6px; }
 
 /* accent (Aura / primary) */
 .accent { background-image: none; background-color: #34e0c8; color: #08243a; font-weight: 600; }
@@ -92,3 +123,144 @@ label, button { color: #eef1f8; font-family: "Noto Sans", sans-serif; }
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 10px; color: #eef1f8; padding: 8px 10px;
 }
+
+/* ---- Aurora Store ---- */
+#store {
+  background-color: rgba(13,16,28,0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 20px;
+  box-shadow: 0 24px 70px -18px rgba(0,0,0,0.7);
+  padding: 8px;
+}
+#store .title { font-size: 18px; font-weight: 700; padding-bottom: 4px; }
+.storecard {
+  background-color: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+.storecard:hover { background-color: rgba(255,255,255,0.08); }
+.sicon {
+  font-size: 30px; color: #34e0c8;
+  min-width: 40px;
+}
+.sname { font-size: 15px; font-weight: 600; color: #eef1f8; }
+.sdesc { font-size: 12.5px; color: #98a2ba; }
+.sget {
+  background-image: none; background-color: #34e0c8; color: #08243a;
+  font-weight: 600; border: none; box-shadow: none;
+  padding: 6px 18px; border-radius: 11px; min-width: 74px;
+}
+.sget:hover { background-color: #5eebd6; }
+.sget:disabled { background-color: rgba(255,255,255,0.10); color: #98a2ba; }
+
+/* ---- About window (Aurora menu) — fully opaque dark card ---- */
+#aboutwin { background-color: #0d1424; }
+#aboutwin .abt-name { font-size: 26px; font-weight: 800; color: #eef1f8; }
+#aboutwin .abt-ver  { font-size: 13px; color: #98a2ba; }
+#aboutwin .abt-desc { font-size: 13px; color: #cfd6e4; }
+#aboutwin .abt-link { font-size: 12px; color: #34e0c8; }
+#aboutwin .abt-close {
+  background-image: none; background-color: #34e0c8; color: #08243a; font-weight: 600;
+  border: none; box-shadow: none; padding: 8px 26px; border-radius: 11px;
+}
+#aboutwin .abt-close:hover { background-color: #5eebd6; }
+
+/* ---- shared ---- */
+.eyebrow { font-size: 11px; font-weight: 600; color: #98a2ba; letter-spacing: 2px; }
+/* panel close (✕) button */
+.pclose {
+  background: transparent; border: none; box-shadow: none;
+  color: #98a2ba; font-size: 14px; padding: 2px 8px; border-radius: 8px;
+  min-width: 26px; min-height: 26px;
+}
+.pclose:hover { background-color: rgba(255,255,255,0.10); color: #eef1f8; }
+
+/* ---- control center ---- */
+#cc {
+  background-color: rgba(13,16,28,0.96);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 16px; box-shadow: 0 24px 70px -18px rgba(0,0,0,0.7);
+}
+.qt {
+  background-image: none; background-color: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10); box-shadow: none;
+  border-radius: 14px; padding: 12px 14px; color: #eef1f8; font-size: 13px;
+}
+.qt:hover { background-color: rgba(255,255,255,0.10); }
+.qt .qic { font-size: 16px; }
+.qt.on { color: #08131f; border-color: transparent; }
+.qt.on.h-teal   { background-color: #34e0c8; }
+.qt.on.h-violet { background-color: #8b7cf6; }
+.qt.on.h-rose   { background-color: #f4a988; }
+.qt.on.h-pink   { background-color: #f072b6; }
+.qt.on.h-green  { background-color: #6ce5a0; }
+.sgi { font-size: 16px; color: #98a2ba; min-width: 20px; }
+#cc scale trough { background-color: rgba(255,255,255,0.14); border-radius: 99px; min-height: 6px; }
+#cc scale highlight { background-color: #34e0c8; border-radius: 99px; }
+#cc scale slider { background-color: #fff; border-radius: 50%; min-width: 16px; min-height: 16px; margin: -6px; }
+.who { font-size: 13px; color: #dfe5f0; }
+
+/* ---- notifications + calendar ---- */
+#noti {
+  background-color: rgba(13,16,28,0.96);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 16px; box-shadow: 0 24px 70px -18px rgba(0,0,0,0.7);
+}
+#noti .title { font-size: 17px; font-weight: 700; }
+.nclear { background: transparent; border: none; box-shadow: none; color: #98a2ba; font-size: 12px; padding: 4px 8px; }
+.nclear:hover { color: #34e0c8; }
+.ncard {
+  background-color: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 13px; padding: 12px 14px;
+}
+.nsrc { font-size: 11px; color: #6b7280; }
+.ntitle { font-size: 13px; font-weight: 600; color: #eef1f8; }
+.nbody { font-size: 12.5px; color: #98a2ba; }
+.nempty { font-size: 12.5px; color: #98a2ba; }
+.cal { background-color: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 13px; padding: 14px; }
+.cal-m { font-size: 12px; color: #98a2ba; letter-spacing: 2px; }
+.cal-d { font-size: 34px; font-weight: 700; }
+.cal-w { font-size: 12.5px; color: #98a2ba; }
+
+/* ---- widgets ---- */
+#widgets {
+  background-color: rgba(13,16,28,0.96);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 16px; box-shadow: 0 24px 70px -18px rgba(0,0,0,0.7);
+}
+.wcard { background-color: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 15px; padding: 16px; }
+.wcard-ai {
+  border: 1px solid rgba(139,124,246,0.35); border-radius: 15px; padding: 16px;
+  background-image: linear-gradient(135deg, rgba(52,224,200,0.14), rgba(139,124,246,0.15), rgba(244,169,136,0.10));
+}
+.wh { font-size: 11px; font-weight: 600; color: #98a2ba; letter-spacing: 1.5px; }
+.wcard-ai .wh { color: #cbb8ff; }
+
+/* ---- animated aurora band (transparent; only the glow shows) ---- */
+#aurora-band { background-color: transparent; }
+
+/* ---- night light (warm click-through overlay) ---- */
+#nightlight { background-color: rgba(255,176,102,0); }
+#nightlight.on { background-color: rgba(255,168,92,0.18); }
+
+/* ---- toast ---- */
+#toast {
+  background-color: rgba(13,16,28,0.96); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 13px; box-shadow: 0 24px 70px -18px rgba(0,0,0,0.7);
+  font-size: 13px; color: #eef1f8;
+}
+
+/* ---- lock screen ---- */
+#lock {
+  background-color: #0a0e1a;
+  background-image:
+    radial-gradient(farthest-side at 50% 0%, rgba(139,124,246,0.30), transparent),
+    radial-gradient(farthest-side at 18% 100%, rgba(244,169,136,0.22), transparent),
+    linear-gradient(to bottom, #0a0e1a 0%, #0e1424 46%, #15122a 100%);
+}
+.lock-time { font-size: 118px; font-weight: 200; color: #ffffff; }
+.lock-date { font-size: 21px; color: #dfe5f0; }
+.lock-hint { font-size: 13px; color: #c8d0de; }

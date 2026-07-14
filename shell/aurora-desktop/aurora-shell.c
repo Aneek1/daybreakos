@@ -15,9 +15,13 @@
  */
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
+#include <gdk/gdkwayland.h>
 #include <gtk-layer-shell.h>
+#include <wayland-client.h>
+#include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -32,6 +36,54 @@ static GtkWidget *g_launcher_flow = NULL;   /* launcher app grid */
 static GtkWidget *g_aura = NULL;         /* aura window (toggle) */
 static GtkWidget *g_aura_log = NULL;     /* aura message list box */
 static GtkWidget *g_clock = NULL;
+
+/* ----- Aurora Store model ----- */
+typedef struct { char *id, *name, *category, *icon, *desc; gboolean installed; } StoreApp;
+static GList *g_catalog = NULL;          /* StoreApp* */
+static GtkWidget *g_store = NULL;        /* store window (toggle) */
+static GtkWidget *g_store_list = NULL;   /* store card list box */
+static void on_store_btn(GtkButton *b, gpointer u); /* defined with the Store, used by the top bar */
+
+/* ----- desktop chrome: control center, notifications, widgets, overlays ----- */
+static GtkWidget *g_cc = NULL;           /* control center flyout */
+static GtkWidget *g_noti = NULL;         /* notifications + calendar flyout */
+static GtkWidget *g_noti_list = NULL;    /* notifications list box */
+static GtkWidget *g_widgets = NULL;      /* widgets flyout */
+static GtkWidget *g_nightlight = NULL;   /* warm overlay surface (night light) */
+static GtkWidget *g_toast = NULL;        /* transient toast surface */
+static GtkWidget *g_toast_lbl = NULL;
+static GtkWidget *g_lock = NULL;         /* lock-screen overlay */
+static GtkWidget *g_lock_time = NULL, *g_lock_date = NULL;
+static GtkWidget *g_bat_lbl = NULL, *g_net_lbl = NULL; /* live top-bar indicators */
+static GtkWidget *g_wstats = NULL;       /* widgets: system-stats label */
+static GtkWidget *g_wday = NULL;         /* widgets: Aura "your day" label */
+static gboolean g_night_on = FALSE;
+static GtkWidget *g_wallpaper = NULL;    /* background surface (right-click menu) */
+static int g_aurora_phase = 0;           /* animated aurora band clock */
+static GtkWidget *g_auroramenu = NULL;   /* top-bar logo menu (About / power) */
+
+/* ----- taskbar: running windows via wlr-foreign-toplevel-management ----- */
+static struct zwlr_foreign_toplevel_manager_v1 *g_ftl_mgr = NULL;
+static struct wl_seat *g_ftl_seat = NULL;
+static GtkWidget *g_taskbar = NULL;      /* dock box: one button per running window */
+typedef struct {
+    struct zwlr_foreign_toplevel_handle_v1 *handle;
+    char *title, *app_id;
+    gboolean activated;
+    GtkWidget *btn, *lbl;
+} Toplevel;
+static GList *g_toplevels = NULL;        /* Toplevel* */
+
+/* ----- pinned dock apps (persisted to ~/.config/aurora/pins) ----- */
+typedef struct { char *name, *exec, *icon; } Pin;
+static GList *g_pins = NULL;             /* Pin* */
+static GtkWidget *g_pinbox = NULL;       /* dock box holding pinned launchers */
+static GtkWidget *g_splash = NULL;       /* boot splash overlay (auto-dismisses) */
+static void on_cc_btn(GtkButton *b, gpointer u);   /* forward: top bar opens control center */
+static void on_widgets_btn(GtkButton *b, gpointer u);
+static void on_noti_btn(GtkButton *b, gpointer u);
+static void on_logo_clicked(GtkButton *b, gpointer u); /* logo opens the Aurora menu */
+static void aurora_toast(const char *glyph, const char *text);
 
 /* Fixed fallback height for full-cover surfaces (wallpaper, Aura slide-over).
  *
@@ -55,7 +107,17 @@ static char *clean_exec(const char *raw) {
     return g_string_free(s, FALSE);
 }
 
+static void free_apps(void) {
+    for (GList *l = g_apps; l; l = l->next) {
+        App *a = l->data;
+        g_free(a->name); g_free(a->exec); g_free(a->icon); g_free(a);
+    }
+    g_list_free(g_apps);
+    g_apps = NULL;
+}
+
 static void scan_apps(void) {
+    free_apps();   /* re-runnable: the launcher rescans on open to catch new installs */
     const char *dirs[] = {
         "/usr/share/applications",
         "/usr/local/share/applications",
@@ -111,6 +173,31 @@ static void launch(const char *cmd) {
     }
 }
 
+/* Resolve a .desktop Icon= into a widget: an absolute path loads the image file
+ * (PNG via gdk-pixbuf core, SVG via librsvg's loader); a bare name goes through
+ * the icon theme; anything missing falls back to a geometric glyph. This keeps
+ * the shell icon-font-free while showing real app art whenever it exists. */
+static GtkWidget *icon_widget(const char *icon, int size, const char *glyph) {
+    if (icon && *icon) {
+        if (g_path_is_absolute(icon)) {
+            if (g_file_test(icon, G_FILE_TEST_EXISTS)) {
+                GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_size(icon, size, size, NULL);
+                if (pb) { GtkWidget *img = gtk_image_new_from_pixbuf(pb); g_object_unref(pb); return img; }
+            }
+        } else {
+            GtkIconTheme *th = gtk_icon_theme_get_default();
+            if (gtk_icon_theme_has_icon(th, icon)) {
+                GtkWidget *img = gtk_image_new_from_icon_name(icon, GTK_ICON_SIZE_DIALOG);
+                gtk_image_set_pixel_size(GTK_IMAGE(img), size);
+                return img;
+            }
+        }
+    }
+    GtkWidget *lab = gtk_label_new(glyph ? glyph : "◈");
+    gtk_style_context_add_class(gtk_widget_get_style_context(lab), "aicon");
+    return lab;
+}
+
 /* ----- layer-shell window helper -----
  * `exclusive` is ALWAYS applied, including -1. A value of -1 opts the surface
  * out of the compositor's exclusive-zone arrangement entirely; leaving it at
@@ -131,49 +218,60 @@ static GtkWidget *layer_window(GtkLayerShellLayer layer, gboolean top,
     return w;
 }
 
-/* ----- Aura: POST /ask to aurorad, return reply text ----- */
-static char *aura_ask(const char *q) {
+/* ----- aurorad HTTP bridge (127.0.0.1:7212) -----
+ * One tiny blocking HTTP/1.0 client used by both Aura chat and the Store.
+ * Returns the malloc'd response body (JSON, headers stripped), or NULL if the
+ * connection failed (aurorad not up yet). Caller frees. */
+static char *aurorad_send(const char *method, const char *path, const char *body) {
     int port = 7212;
     const char *env = g_getenv("AURORAD_PORT");
     if (env) port = atoi(env);
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return g_strdup("(Aura offline)");
+    if (fd < 0) return NULL;
     struct sockaddr_in sa = {0};
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
     inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
-    if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
-        close(fd);
-        return g_strdup("(Aura is still waking up…)");
-    }
-    char *jq = g_strescape(q, "");           /* escape \, ", control chars */
-    char *body = g_strdup_printf("{\"q\":\"%s\"}", jq);
-    g_free(jq);
+    if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) < 0) { close(fd); return NULL; }
 
-    char *req = g_strdup_printf(
-        "POST /ask HTTP/1.0\r\nHost: 127.0.0.1\r\n"
-        "Content-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",
-        strlen(body), body);
+    char *req = body
+        ? g_strdup_printf("%s %s HTTP/1.0\r\nHost: 127.0.0.1\r\n"
+              "Content-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",
+              method, path, strlen(body), body)
+        : g_strdup_printf("%s %s HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n", method, path);
     ssize_t off = 0, len = strlen(req);
     while (off < len) {
         ssize_t n = write(fd, req + off, len - off);
         if (n <= 0) break;
         off += n;
     }
-    g_free(req); g_free(body);
+    g_free(req);
 
     GString *resp = g_string_new("");
     char buf[4096]; ssize_t n;
     while ((n = read(fd, buf, sizeof(buf))) > 0) g_string_append_len(resp, buf, n);
     close(fd);
 
-    /* split headers/body, pull "reply" or "answer" out of the JSON */
     char *sep = strstr(resp->str, "\r\n\r\n");
-    char *json = sep ? sep + 4 : resp->str;
+    char *out = g_strdup(sep ? sep + 4 : resp->str);
+    g_string_free(resp, TRUE);
+    return out;
+}
+
+/* ----- Aura: POST /ask to aurorad, return reply text ----- */
+static char *aura_ask(const char *q) {
+    char *jq = g_strescape(q, "");           /* escape \, ", control chars */
+    char *body = g_strdup_printf("{\"q\":\"%s\"}", jq);
+    g_free(jq);
+    char *json = aurorad_send("POST", "/ask", body);
+    g_free(body);
+    if (!json) return g_strdup("(Aura is still waking up…)");
+
+    /* pull "reply"/"answer" out of the JSON. aurorad's /ask returns
+     * {"a": "<reply>", "actions": [...]}, so "a" is the primary key; the others
+     * are accepted for forward-compat with other bridges. */
     char *reply = NULL;
-    /* aurorad's /ask returns {"a": "<reply>", "actions": [...]}, so "a" is the
-     * primary key; the others are accepted for forward-compat with other bridges. */
     const char *keys[] = {"\"a\"", "\"reply\"", "\"answer\"", "\"text\"", NULL};
     for (int k = 0; keys[k] && !reply; k++) {
         char *p = strstr(json, keys[k]);
@@ -190,7 +288,7 @@ static char *aura_ask(const char *q) {
         reply = g_string_free(out, FALSE);
     }
     if (!reply) reply = g_strndup(json, 400);
-    g_string_free(resp, TRUE);
+    g_free(json);
     return reply;
 }
 
@@ -267,12 +365,54 @@ static void on_app_clicked(GtkButton *b, gpointer u) {
     if (g_launcher) gtk_widget_hide(g_launcher);
 }
 
-/* ----- clock ----- */
+/* ----- live top-bar indicators (battery + network) ----- */
+static void refresh_indicators(void) {
+    if (g_bat_lbl) {
+        GDir *d = g_dir_open("/sys/class/power_supply", 0, NULL);
+        char *cap = NULL; const char *n;
+        if (d) {
+            while ((n = g_dir_read_name(d))) {
+                char *tp = g_build_filename("/sys/class/power_supply", n, "type", NULL);
+                char *t = NULL;
+                if (g_file_get_contents(tp, &t, NULL, NULL) && g_str_has_prefix(t, "Battery")) {
+                    char *cp = g_build_filename("/sys/class/power_supply", n, "capacity", NULL);
+                    g_file_get_contents(cp, &cap, NULL, NULL); g_free(cp);
+                }
+                g_free(t); g_free(tp);
+                if (cap) break;
+            }
+            g_dir_close(d);
+        }
+        if (cap) { char *s = g_strdup_printf("▤ %d%%", atoi(cap)); gtk_label_set_text(GTK_LABEL(g_bat_lbl), s); g_free(s); g_free(cap); }
+        else gtk_label_set_text(GTK_LABEL(g_bat_lbl), "▤ AC");
+    }
+    if (g_net_lbl) {
+        gboolean up = FALSE;
+        GDir *d = g_dir_open("/sys/class/net", 0, NULL);
+        const char *n;
+        if (d) {
+            while ((n = g_dir_read_name(d))) {
+                if (!strcmp(n, "lo")) continue;
+                char *sp = g_build_filename("/sys/class/net", n, "operstate", NULL);
+                char *st = NULL;
+                if (g_file_get_contents(sp, &st, NULL, NULL) && g_str_has_prefix(st, "up")) up = TRUE;
+                g_free(st); g_free(sp);
+            }
+            g_dir_close(d);
+        }
+        gtk_label_set_text(GTK_LABEL(g_net_lbl), up ? "↑" : "⚠");
+    }
+}
+
+/* ----- clock (also drives the lock screen + indicators) ----- */
 static gboolean tick(gpointer u) {
     GDateTime *now = g_date_time_new_now_local();
     char *s = g_date_time_format(now, "%a %d %b   %H:%M");
     gtk_label_set_text(GTK_LABEL(g_clock), s);
+    if (g_lock_time) { char *lt = g_date_time_format(now, "%H:%M"); gtk_label_set_text(GTK_LABEL(g_lock_time), lt); g_free(lt); }
+    if (g_lock_date) { char *ld = g_date_time_format(now, "%A, %e %B"); gtk_label_set_text(GTK_LABEL(g_lock_date), g_strstrip(ld)); g_free(ld); }
     g_free(s); g_date_time_unref(now);
+    refresh_indicators();
     return G_SOURCE_CONTINUE;
 }
 
@@ -292,29 +432,276 @@ static void build_topbar(void) {
     GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_margin_start(hb, 12); gtk_widget_set_margin_end(hb, 12);
 
-    GtkWidget *logo = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(logo),
+    /* logo is a button that opens the Aurora menu (About / Lock / power) */
+    GtkWidget *logo = gtk_button_new();
+    gtk_style_context_add_class(gtk_widget_get_style_context(logo), "logobtn");
+    gtk_widget_set_focus_on_click(logo, FALSE);
+    GtkWidget *logolbl = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(logolbl),
         "<span foreground='#34e0c8' size='x-large'>◗</span>  <b>Aurora</b>");
-    gtk_widget_set_name(logo, "logo");
+    gtk_widget_set_name(logolbl, "logo");
+    gtk_container_add(GTK_CONTAINER(logo), logolbl);
+    g_signal_connect(logo, "clicked", G_CALLBACK(on_logo_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(hb), logo, FALSE, FALSE, 0);
 
     GtkWidget *apps = make_tbtn("▦ Apps", G_CALLBACK(on_launcher_btn));
     gtk_box_pack_start(GTK_BOX(hb), apps, FALSE, FALSE, 0);
 
+    GtkWidget *store = make_tbtn("◇ Store", G_CALLBACK(on_store_btn));
+    gtk_box_pack_start(GTK_BOX(hb), store, FALSE, FALSE, 0);
+
+    GtkWidget *widg = make_tbtn("▤ Widgets", G_CALLBACK(on_widgets_btn));
+    gtk_box_pack_start(GTK_BOX(hb), widg, FALSE, FALSE, 0);
+
+    /* center clock is a button that opens notifications + calendar */
+    GtkWidget *clockb = gtk_button_new();
+    gtk_style_context_add_class(gtk_widget_get_style_context(clockb), "tbtn");
+    gtk_widget_set_focus_on_click(clockb, FALSE);
+    g_signal_connect(clockb, "clicked", G_CALLBACK(on_noti_btn), NULL);
     g_clock = gtk_label_new("");
     gtk_widget_set_name(g_clock, "clock");
-    gtk_box_set_center_widget(GTK_BOX(hb), g_clock);
+    gtk_container_add(GTK_CONTAINER(clockb), g_clock);
+    gtk_box_set_center_widget(GTK_BOX(hb), clockb);
 
     GtkWidget *aura = make_tbtn("◆ Aura", G_CALLBACK(on_aura_btn));
     gtk_style_context_add_class(gtk_widget_get_style_context(aura), "accent");
     gtk_box_pack_end(GTK_BOX(hb), aura, FALSE, FALSE, 0);
 
-    GtkWidget *tray = gtk_label_new("↑  ◑  ▤");
-    gtk_style_context_add_class(gtk_widget_get_style_context(tray), "tray");
-    gtk_box_pack_end(GTK_BOX(hb), tray, FALSE, FALSE, 6);
+    /* right-side indicators open the control center; battery/network go live */
+    GtkWidget *ind = gtk_button_new();
+    gtk_style_context_add_class(gtk_widget_get_style_context(ind), "tbtn");
+    gtk_widget_set_focus_on_click(ind, FALSE);
+    g_signal_connect(ind, "clicked", G_CALLBACK(on_cc_btn), NULL);
+    GtkWidget *indrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_style_context_add_class(gtk_widget_get_style_context(indrow), "tray");
+    g_net_lbl = gtk_label_new("↑");
+    g_bat_lbl = gtk_label_new("▤");
+    gtk_box_pack_start(GTK_BOX(indrow), g_net_lbl, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(indrow), gtk_label_new("◑"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(indrow), g_bat_lbl, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(ind), indrow);
+    gtk_box_pack_end(GTK_BOX(hb), ind, FALSE, FALSE, 6);
 
     gtk_container_add(GTK_CONTAINER(bar), hb);
     gtk_widget_show_all(bar);
+}
+
+/* ============================ pinned dock apps ============================ */
+static char *pins_path(void) {
+    return g_build_filename(g_get_user_config_dir(), "aurora", "pins", NULL);
+}
+static void free_pins(void) {
+    for (GList *l = g_pins; l; l = l->next) {
+        Pin *p = l->data; g_free(p->name); g_free(p->exec); g_free(p->icon); g_free(p);
+    }
+    g_list_free(g_pins); g_pins = NULL;
+}
+static void load_pins(void) {
+    free_pins();
+    char *path = pins_path(), *body = NULL;
+    if (g_file_get_contents(path, &body, NULL, NULL)) {
+        char **lines = g_strsplit(body, "\n", -1);
+        for (int i = 0; lines[i]; i++) {
+            if (!*lines[i]) continue;
+            char **f = g_strsplit(lines[i], "\t", 3);
+            if (f[0] && f[1]) {
+                Pin *p = g_new0(Pin, 1);
+                p->name = g_strdup(f[0]); p->exec = g_strdup(f[1]);
+                p->icon = g_strdup(f[2] ? f[2] : "");
+                g_pins = g_list_append(g_pins, p);
+            }
+            g_strfreev(f);
+        }
+        g_strfreev(lines); g_free(body);
+    } else {                                   /* first run: a sensible default */
+        Pin *p = g_new0(Pin, 1);
+        p->name = g_strdup("Terminal"); p->exec = g_strdup("foot"); p->icon = g_strdup("");
+        g_pins = g_list_append(g_pins, p);
+    }
+    g_free(path);
+}
+static void save_pins(void) {
+    char *path = pins_path();
+    char *dir = g_path_get_dirname(path);
+    g_mkdir_with_parents(dir, 0755);
+    GString *s = g_string_new(NULL);
+    for (GList *l = g_pins; l; l = l->next) {
+        Pin *p = l->data;
+        g_string_append_printf(s, "%s\t%s\t%s\n", p->name, p->exec, p->icon ? p->icon : "");
+    }
+    g_file_set_contents(path, s->str, -1, NULL);
+    g_string_free(s, TRUE); g_free(dir); g_free(path);
+}
+static gboolean is_pinned(const char *exec) {
+    for (GList *l = g_pins; l; l = l->next)
+        if (!g_strcmp0(((Pin *)l->data)->exec, exec)) return TRUE;
+    return FALSE;
+}
+static void rebuild_pinbox(void);
+static void unpin_exec(const char *exec) {
+    for (GList *l = g_pins; l; l = l->next) {
+        Pin *p = l->data;
+        if (!g_strcmp0(p->exec, exec)) {
+            g_pins = g_list_remove(g_pins, p);
+            g_free(p->name); g_free(p->exec); g_free(p->icon); g_free(p);
+            break;
+        }
+    }
+    save_pins(); rebuild_pinbox();
+}
+static void pin_app(const char *name, const char *exec, const char *icon) {
+    if (is_pinned(exec)) { aurora_toast("▣", "Already pinned"); return; }
+    Pin *p = g_new0(Pin, 1);
+    p->name = g_strdup(name); p->exec = g_strdup(exec); p->icon = g_strdup(icon ? icon : "");
+    g_pins = g_list_append(g_pins, p);
+    save_pins(); rebuild_pinbox();
+    aurora_toast("▣", "Pinned to dock");
+}
+static gboolean pin_btn_press(GtkWidget *w, GdkEventButton *e, gpointer exec) {
+    if (e->button == 3) { unpin_exec((const char *)exec); return TRUE; }  /* right-click unpins */
+    return FALSE;
+}
+static void rebuild_pinbox(void) {
+    if (!g_pinbox) return;
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(g_pinbox));
+    for (GList *l = kids; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(kids);
+    for (GList *l = g_pins; l; l = l->next) {
+        Pin *p = l->data;
+        GtkWidget *b = gtk_button_new();
+        gtk_style_context_add_class(gtk_widget_get_style_context(b), "dbtn");
+        gtk_widget_set_focus_on_click(b, FALSE);
+        gtk_widget_set_tooltip_text(b, p->name);
+        gtk_container_add(GTK_CONTAINER(b), icon_widget(p->icon, 26, "▣"));
+        g_signal_connect_swapped(b, "clicked", G_CALLBACK(launch), p->exec);
+        g_signal_connect(b, "button-press-event", G_CALLBACK(pin_btn_press), p->exec);
+        gtk_box_pack_start(GTK_BOX(g_pinbox), b, FALSE, FALSE, 0);
+    }
+    gtk_widget_show_all(g_pinbox);
+}
+
+/* ================= taskbar: running windows (wlr-foreign-toplevel) ========= */
+static void update_task_button(Toplevel *tl) {
+    const char *t = (tl->title && *tl->title) ? tl->title
+                  : (tl->app_id && *tl->app_id) ? tl->app_id : "window";
+    gtk_label_set_text(GTK_LABEL(tl->lbl), t);
+    GtkStyleContext *sc = gtk_widget_get_style_context(tl->btn);
+    if (tl->activated) gtk_style_context_add_class(sc, "active");
+    else               gtk_style_context_remove_class(sc, "active");
+    gtk_widget_show_all(tl->btn);
+}
+static void ftl_title(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, const char *t) {
+    (void)h; Toplevel *tl = d; g_free(tl->title); tl->title = g_strdup(t);
+    update_task_button(tl);          /* reflect live title changes immediately */
+}
+static void ftl_app_id(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, const char *a) {
+    (void)h; Toplevel *tl = d; g_free(tl->app_id); tl->app_id = g_strdup(a);
+    update_task_button(tl);
+}
+static void ftl_out_enter(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) { (void)d;(void)h;(void)o; }
+static void ftl_out_leave(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) { (void)d;(void)h;(void)o; }
+static void ftl_state(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_array *arr) {
+    (void)h; Toplevel *tl = d; tl->activated = FALSE;
+    uint32_t *st;
+    wl_array_for_each(st, arr)
+        if (*st == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED) tl->activated = TRUE;
+}
+static void ftl_done(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) { (void)h; update_task_button((Toplevel *)d); }
+static void ftl_closed(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) {
+    Toplevel *tl = d;
+    if (tl->btn) gtk_widget_destroy(tl->btn);
+    zwlr_foreign_toplevel_handle_v1_destroy(h);
+    g_toplevels = g_list_remove(g_toplevels, tl);
+    g_free(tl->title); g_free(tl->app_id); g_free(tl);
+}
+static void ftl_parent(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct zwlr_foreign_toplevel_handle_v1 *p) { (void)d;(void)h;(void)p; }
+static const struct zwlr_foreign_toplevel_handle_v1_listener ftl_handle_listener = {
+    .title = ftl_title, .app_id = ftl_app_id,
+    .output_enter = ftl_out_enter, .output_leave = ftl_out_leave,
+    .state = ftl_state, .done = ftl_done, .closed = ftl_closed, .parent = ftl_parent,
+};
+static void on_task_clicked(GtkButton *b, gpointer d) {
+    (void)b; Toplevel *tl = d;
+    if (g_ftl_seat) zwlr_foreign_toplevel_handle_v1_activate(tl->handle, g_ftl_seat);
+}
+static void ftl_new(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
+                    struct zwlr_foreign_toplevel_handle_v1 *h) {
+    (void)d; (void)m;
+    Toplevel *tl = g_new0(Toplevel, 1);
+    tl->handle = h;
+    tl->btn = gtk_button_new();
+    gtk_style_context_add_class(gtk_widget_get_style_context(tl->btn), "taskbtn");
+    gtk_widget_set_focus_on_click(tl->btn, FALSE);
+    tl->lbl = gtk_label_new("…");
+    gtk_label_set_ellipsize(GTK_LABEL(tl->lbl), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(tl->lbl), 16);
+    gtk_container_add(GTK_CONTAINER(tl->btn), tl->lbl);
+    g_signal_connect(tl->btn, "clicked", G_CALLBACK(on_task_clicked), tl);
+    zwlr_foreign_toplevel_handle_v1_add_listener(h, &ftl_handle_listener, tl);
+    if (g_taskbar) gtk_box_pack_start(GTK_BOX(g_taskbar), tl->btn, FALSE, FALSE, 0);
+    g_toplevels = g_list_append(g_toplevels, tl);
+}
+static void ftl_finished(void *d, struct zwlr_foreign_toplevel_manager_v1 *m) { (void)d;(void)m; }
+static const struct zwlr_foreign_toplevel_manager_v1_listener ftl_mgr_listener = {
+    .toplevel = ftl_new, .finished = ftl_finished,
+};
+static void reg_global(void *d, struct wl_registry *r, uint32_t name,
+                       const char *iface, uint32_t version) {
+    (void)d;
+    if (!strcmp(iface, zwlr_foreign_toplevel_manager_v1_interface.name)) {
+        uint32_t v = version < 3 ? version : 3;
+        g_ftl_mgr = wl_registry_bind(r, name, &zwlr_foreign_toplevel_manager_v1_interface, v);
+        zwlr_foreign_toplevel_manager_v1_add_listener(g_ftl_mgr, &ftl_mgr_listener, NULL);
+    } else if (!strcmp(iface, wl_seat_interface.name) && !g_ftl_seat) {
+        g_ftl_seat = wl_registry_bind(r, name, &wl_seat_interface, 1);
+    }
+}
+static void reg_remove(void *d, struct wl_registry *r, uint32_t name) { (void)d;(void)r;(void)name; }
+static const struct wl_registry_listener reg_listener = {
+    .global = reg_global, .global_remove = reg_remove,
+};
+static void taskbar_init(void) {
+    GdkDisplay *gd = gdk_display_get_default();
+    if (!GDK_IS_WAYLAND_DISPLAY(gd)) return;
+    struct wl_display *dpy = gdk_wayland_display_get_wl_display(gd);
+    struct wl_registry *reg = wl_display_get_registry(dpy);
+    wl_registry_add_listener(reg, &reg_listener, NULL);
+    wl_display_roundtrip(dpy);   /* bind manager + seat (adds mgr listener) */
+    wl_display_roundtrip(dpy);   /* deliver already-open toplevels */
+}
+
+/* ============================== boot splash =============================== */
+static gboolean splash_fade(gpointer u) {
+    if (!g_splash) return G_SOURCE_REMOVE;
+    double o = gtk_widget_get_opacity(g_splash) - 0.08;
+    if (o <= 0.0) { gtk_widget_destroy(g_splash); g_splash = NULL; return G_SOURCE_REMOVE; }
+    gtk_widget_set_opacity(g_splash, o);
+    return G_SOURCE_CONTINUE;
+}
+static gboolean splash_begin_fade(gpointer u) {
+    (void)u;
+    if (g_splash) g_timeout_add(40, splash_fade, NULL);
+    return G_SOURCE_REMOVE;
+}
+static void build_splash(void) {
+    g_splash = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, TRUE, TRUE, TRUE, -1);
+    gtk_widget_set_name(g_splash, "splash");
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    gtk_widget_set_halign(v, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(v, GTK_ALIGN_CENTER);
+    GtkWidget *logo = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(logo),
+        "<span foreground='#34e0c8' size='100000'>◗</span>");
+    GtkWidget *name = gtk_label_new("AuroraOS");
+    gtk_widget_set_name(name, "splash-name");
+    GtkWidget *sub = gtk_label_new("daybreak");
+    gtk_widget_set_name(sub, "splash-sub");
+    gtk_box_pack_start(GTK_BOX(v), logo, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), name, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), sub, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(g_splash), v);
+    gtk_widget_show_all(g_splash);
+    g_timeout_add(1800, splash_begin_fade, NULL);   /* hold, then fade out */
 }
 
 static void build_dock(void) {
@@ -323,25 +710,25 @@ static void build_dock(void) {
     gtk_layer_set_margin(GTK_WINDOW(dock), GTK_LAYER_SHELL_EDGE_BOTTOM, 12);
     GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
-    /* pinned apps: glyph + command. Glyphs are restricted to the U+25xx
-     * geometric block, which DejaVu Sans covers — emoji/symbol codepoints
-     * render as tofu boxes without a dedicated symbol font. */
-    struct { const char *g, *cmd; } pins[] = {
-        {"▸", "foot"},                 /* terminal */
-        {"▤", "foot"},                 /* files (placeholder -> terminal) */
-        {NULL, NULL}
-    };
-    for (int i = 0; pins[i].g; i++) {
-        GtkWidget *b = gtk_button_new_with_label(pins[i].g);
-        gtk_style_context_add_class(gtk_widget_get_style_context(b), "dbtn");
-        gtk_widget_set_focus_on_click(b, FALSE);
-        g_signal_connect_swapped(b, "clicked", G_CALLBACK(launch), (gpointer)pins[i].cmd);
-        gtk_box_pack_start(GTK_BOX(hb), b, FALSE, FALSE, 0);
-    }
+    /* pinned apps (persisted) */
+    g_pinbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(hb), g_pinbox, FALSE, FALSE, 0);
+    load_pins();
+    rebuild_pinbox();
+
+    /* all-apps launcher */
     GtkWidget *all = gtk_button_new_with_label("▦");
     gtk_style_context_add_class(gtk_widget_get_style_context(all), "dbtn");
+    gtk_widget_set_focus_on_click(all, FALSE);
     g_signal_connect(all, "clicked", G_CALLBACK(on_launcher_btn), NULL);
     gtk_box_pack_start(GTK_BOX(hb), all, FALSE, FALSE, 0);
+
+    /* running windows (foreign-toplevel taskbar) */
+    GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+    gtk_style_context_add_class(gtk_widget_get_style_context(sep), "docksep");
+    gtk_box_pack_start(GTK_BOX(hb), sep, FALSE, FALSE, 4);
+    g_taskbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(hb), g_taskbar, FALSE, FALSE, 0);
 
     gtk_container_add(GTK_CONTAINER(dock), hb);
     gtk_widget_show_all(dock);
@@ -354,8 +741,10 @@ static void build_wallpaper(void) {
      * (see AURORA_COVER_H). The patched gtk-layer-shell bounds the geometry hints
      * so opposite-edge anchoring no longer trips the 65535px limit. */
     GtkWidget *wp = layer_window(GTK_LAYER_SHELL_LAYER_BACKGROUND, TRUE, TRUE, TRUE, TRUE, -1);
+    g_wallpaper = wp;
     gtk_style_context_add_class(gtk_widget_get_style_context(wp), "wallpaper");
     gtk_widget_set_size_request(wp, -1, AURORA_COVER_H);
+    gtk_widget_add_events(wp, GDK_BUTTON_PRESS_MASK);
     GtkWidget *brand = gtk_label_new("AuroraOS");
     gtk_style_context_add_class(gtk_widget_get_style_context(brand), "wp-brand");
     gtk_widget_set_halign(brand, GTK_ALIGN_CENTER);
@@ -384,7 +773,63 @@ static gboolean launcher_key(GtkWidget *w, GdkEventKey *ev, gpointer u) {
     if (ev->keyval == GDK_KEY_Escape) { gtk_widget_hide(g_launcher); return TRUE; }
     return FALSE;
 }
+/* (Re)build the app grid from the current g_apps list. Safe to call repeatedly:
+ * clears any existing tiles first. */
+static void launcher_pin_toggle(GtkMenuItem *mi, gpointer a_ptr) {
+    (void)mi; App *a = a_ptr;
+    if (is_pinned(a->exec)) unpin_exec(a->exec);
+    else                    pin_app(a->name, a->exec, a->icon);
+}
+static gboolean launcher_item_press(GtkWidget *w, GdkEventButton *e, gpointer a_ptr) {
+    (void)w;
+    if (e->button != 3) return FALSE;          /* right-click -> pin/unpin menu */
+    App *a = a_ptr;
+    GtkWidget *menu = gtk_menu_new();
+    GtkWidget *mi = gtk_menu_item_new_with_label(
+        is_pinned(a->exec) ? "Unpin from Dock" : "Pin to Dock");
+    g_signal_connect(mi, "activate", G_CALLBACK(launcher_pin_toggle), a);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    gtk_widget_show_all(menu);
+    gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *)e);
+    return TRUE;
+}
+static void populate_launcher(void) {
+    if (!g_launcher_flow) return;
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(g_launcher_flow));
+    for (GList *l = kids; l; l = l->next)
+        gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(kids);
+
+    for (GList *l = g_apps; l; l = l->next) {
+        App *a = l->data;
+        GtkWidget *b = gtk_button_new();
+        gtk_style_context_add_class(gtk_widget_get_style_context(b), "applaunch");
+        GtkWidget *bv = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        GtkWidget *ic = icon_widget(a->icon, 44, "◈");
+        GtkWidget *nm = gtk_label_new(a->name);
+        gtk_label_set_ellipsize(GTK_LABEL(nm), PANGO_ELLIPSIZE_END);
+        gtk_label_set_max_width_chars(GTK_LABEL(nm), 12);
+        gtk_style_context_add_class(gtk_widget_get_style_context(nm), "aname");
+        gtk_box_pack_start(GTK_BOX(bv), ic, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(bv), nm, FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(b), bv);
+        g_signal_connect(b, "clicked", G_CALLBACK(on_app_clicked), a);
+        gtk_widget_add_events(b, GDK_BUTTON_PRESS_MASK);
+        g_signal_connect(b, "button-press-event", G_CALLBACK(launcher_item_press), a);
+        gtk_container_add(GTK_CONTAINER(g_launcher_flow), b);
+        /* tag the auto-created flow child with the app name for the search filter */
+        GtkWidget *child = gtk_widget_get_parent(b);
+        g_object_set_data_full(G_OBJECT(child), "app-name",
+                               g_strdup(a->name), g_free);
+    }
+    gtk_widget_show_all(g_launcher_flow);
+}
+
 static void launcher_shown(GtkWidget *w, gpointer u) {
+    /* Rescan on every open so newly installed apps (e.g. from the Store)
+     * show up without a shell restart. */
+    scan_apps();
+    populate_launcher();
     if (g_launcher_search) {
         gtk_entry_set_text(GTK_ENTRY(g_launcher_search), "");
         gtk_widget_grab_focus(g_launcher_search);
@@ -424,27 +869,7 @@ static void build_launcher(void) {
     gtk_flow_box_set_filter_func(GTK_FLOW_BOX(g_launcher_flow),
                                  launcher_filter, NULL, NULL);
 
-    for (GList *l = g_apps; l; l = l->next) {
-        App *a = l->data;
-        GtkWidget *b = gtk_button_new();
-        gtk_style_context_add_class(gtk_widget_get_style_context(b), "applaunch");
-        GtkWidget *bv = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-        GtkWidget *ic = gtk_label_new("◈");
-        gtk_style_context_add_class(gtk_widget_get_style_context(ic), "aicon");
-        GtkWidget *nm = gtk_label_new(a->name);
-        gtk_label_set_ellipsize(GTK_LABEL(nm), PANGO_ELLIPSIZE_END);
-        gtk_label_set_max_width_chars(GTK_LABEL(nm), 12);
-        gtk_style_context_add_class(gtk_widget_get_style_context(nm), "aname");
-        gtk_box_pack_start(GTK_BOX(bv), ic, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(bv), nm, FALSE, FALSE, 0);
-        gtk_container_add(GTK_CONTAINER(b), bv);
-        g_signal_connect(b, "clicked", G_CALLBACK(on_app_clicked), a);
-        gtk_container_add(GTK_CONTAINER(g_launcher_flow), b);
-        /* tag the auto-created flow child with the app name for the search filter */
-        GtkWidget *child = gtk_widget_get_parent(b);
-        g_object_set_data_full(G_OBJECT(child), "app-name",
-                               g_strdup(a->name), g_free);
-    }
+    populate_launcher();
     gtk_container_add(GTK_CONTAINER(scroll), g_launcher_flow);
     gtk_box_pack_start(GTK_BOX(v), scroll, TRUE, TRUE, 0);
     gtk_container_add(GTK_CONTAINER(g_launcher), v);
@@ -502,6 +927,745 @@ static void build_aura(void) {
                  "change settings, or anything else.", FALSE);
 }
 
+/* ================= Aurora Store =================
+ * A native software centre: reads the same pipe-delimited catalog aurorad uses,
+ * shows a card per app with a Get/Open button, and installs via POST
+ * /store/install (aurorad downloads the AppImage and unpacks it under
+ * ~/Applications). Installs run on a worker thread so a slow download never
+ * freezes the shell. */
+
+static gboolean store_is_installed(const char *id) {
+    char *p = g_build_filename(g_get_home_dir(), "Applications", id, "AppRun", NULL);
+    gboolean ex = g_file_test(p, G_FILE_TEST_EXISTS);
+    g_free(p);
+    return ex;
+}
+
+static void read_catalog(void) {
+    const char *paths[] = {
+        "/usr/share/aurora/store/catalog",
+        "/opt/aura/store/catalog",
+        NULL
+    };
+    char *data = NULL;
+    for (int i = 0; paths[i] && !data; i++)
+        g_file_get_contents(paths[i], &data, NULL, NULL);
+    if (!data) {
+        /* dev fallback: repo-relative store/catalog when run from the source tree */
+        char *local = g_build_filename(g_get_current_dir(), "..", "..", "store", "catalog", NULL);
+        g_file_get_contents(local, &data, NULL, NULL);
+        g_free(local);
+    }
+    if (!data) return;
+
+    char **lines = g_strsplit(data, "\n", -1);
+    for (int i = 0; lines[i]; i++) {
+        char *line = g_strstrip(lines[i]);
+        if (!*line || line[0] == '#') continue;
+        char **f = g_strsplit(line, "|", 6);
+        if (g_strv_length(f) >= 6) {
+            StoreApp *s = g_new0(StoreApp, 1);
+            s->id       = g_strdup(g_strstrip(f[0]));
+            s->name     = g_strdup(g_strstrip(f[1]));
+            s->category = g_strdup(g_strstrip(f[2]));
+            s->icon     = g_strdup(g_strstrip(f[3]));
+            s->desc     = g_strdup(g_strstrip(f[4]));
+            s->installed = store_is_installed(s->id);
+            g_catalog = g_list_append(g_catalog, s);
+        }
+        g_strfreev(f);
+    }
+    g_strfreev(lines);
+    g_free(data);
+}
+
+/* async install: POST /store/install off the UI thread, update the button back
+ * on it (same pattern as Aura's worker). */
+typedef struct { StoreApp *app; GtkWidget *btn; } StoreJob;
+typedef struct { StoreApp *app; GtkWidget *btn; gboolean ok; char *err; } StoreResult;
+
+static gboolean store_apply_result(gpointer data) {
+    StoreResult *r = data;
+    if (r->ok) {
+        r->app->installed = TRUE;
+        gtk_button_set_label(GTK_BUTTON(r->btn), "Open");
+        gtk_widget_set_tooltip_text(r->btn, NULL);
+    } else {
+        gtk_button_set_label(GTK_BUTTON(r->btn), "Retry");
+        gtk_widget_set_tooltip_text(r->btn, r->err ? r->err : "Install failed");
+    }
+    gtk_widget_set_sensitive(r->btn, TRUE);
+    g_free(r->err);
+    g_free(r);
+    return G_SOURCE_REMOVE;
+}
+
+static gpointer store_worker(gpointer data) {
+    StoreJob *j = data;
+    char *jid = g_strescape(j->app->id, "");
+    char *body = g_strdup_printf("{\"id\":\"%s\"}", jid);
+    g_free(jid);
+    char *resp = aurorad_send("POST", "/store/install", body);
+    g_free(body);
+
+    StoreResult *r = g_new0(StoreResult, 1);
+    r->app = j->app;
+    r->btn = j->btn;
+    r->ok  = resp && (strstr(resp, "\"ok\": true") || strstr(resp, "\"ok\":true"));
+    if (!r->ok) {
+        /* surface aurorad's "error" string if present */
+        char *e = resp ? strstr(resp, "\"error\"") : NULL;
+        if (e && (e = strchr(e, ':'))) {
+            e++; while (*e == ' ' || *e == '"') e++;
+            GString *m = g_string_new("");
+            for (; *e && *e != '"'; e++) g_string_append_c(m, *e);
+            r->err = g_string_free(m, FALSE);
+        } else {
+            r->err = g_strdup(resp ? "install failed" : "Store bridge offline");
+        }
+    }
+    g_free(resp);
+    g_idle_add(store_apply_result, r);
+    g_free(j);
+    return NULL;
+}
+
+static void on_store_btn_clicked(GtkButton *b, gpointer u) {
+    StoreApp *app = u;
+    if (app->installed) {
+        /* launch the unpacked AppImage directly */
+        char *run = g_build_filename(g_get_home_dir(), "Applications", app->id, "AppRun", NULL);
+        launch(run);
+        g_free(run);
+        if (g_store) gtk_widget_hide(g_store);
+        return;
+    }
+    gtk_button_set_label(b, "Installing…");
+    gtk_widget_set_sensitive(GTK_WIDGET(b), FALSE);
+    StoreJob *j = g_new0(StoreJob, 1);
+    j->app = app;
+    j->btn = GTK_WIDGET(b);
+    GThread *t = g_thread_new("store-install", store_worker, j);
+    if (t) g_thread_unref(t);
+}
+
+static gboolean store_key(GtkWidget *w, GdkEventKey *ev, gpointer u) {
+    if (ev->keyval == GDK_KEY_Escape) { gtk_widget_hide(g_store); return TRUE; }
+    return FALSE;
+}
+
+static void build_store(void) {
+    read_catalog();
+    g_store = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, FALSE, FALSE, FALSE, FALSE, -1);
+    gtk_widget_set_name(g_store, "store");
+    gtk_layer_set_keyboard_mode(GTK_WINDOW(g_store), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
+    gtk_window_set_default_size(GTK_WINDOW(g_store), 560, 520);
+    g_signal_connect(g_store, "key-press-event", G_CALLBACK(store_key), NULL);
+
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(v, 20); gtk_widget_set_margin_end(v, 20);
+    gtk_widget_set_margin_top(v, 18);   gtk_widget_set_margin_bottom(v, 18);
+
+    GtkWidget *title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(title),
+        "<b>Aurora Store</b>  ·  <span size='small'>on-device app catalog</span>");
+    gtk_style_context_add_class(gtk_widget_get_style_context(title), "title");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(v), title, FALSE, FALSE, 0);
+
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_vexpand(scroll, TRUE);
+    g_store_list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+
+    for (GList *l = g_catalog; l; l = l->next) {
+        StoreApp *a = l->data;
+        GtkWidget *card = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
+        gtk_style_context_add_class(gtk_widget_get_style_context(card), "storecard");
+
+        GtkWidget *ic = gtk_label_new(a->icon && *a->icon ? a->icon : "◈");
+        gtk_style_context_add_class(gtk_widget_get_style_context(ic), "sicon");
+        gtk_box_pack_start(GTK_BOX(card), ic, FALSE, FALSE, 0);
+
+        GtkWidget *info = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        GtkWidget *nm = gtk_label_new(a->name);
+        gtk_widget_set_halign(nm, GTK_ALIGN_START);
+        gtk_style_context_add_class(gtk_widget_get_style_context(nm), "sname");
+        GtkWidget *ds = gtk_label_new(a->desc);
+        gtk_widget_set_halign(ds, GTK_ALIGN_START);
+        gtk_label_set_line_wrap(GTK_LABEL(ds), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(ds), 0.0);
+        gtk_style_context_add_class(gtk_widget_get_style_context(ds), "sdesc");
+        gtk_box_pack_start(GTK_BOX(info), nm, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(info), ds, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(card), info, TRUE, TRUE, 0);
+
+        GtkWidget *btn = gtk_button_new_with_label(a->installed ? "Open" : "Get");
+        gtk_style_context_add_class(gtk_widget_get_style_context(btn), "sget");
+        gtk_widget_set_valign(btn, GTK_ALIGN_CENTER);
+        gtk_widget_set_focus_on_click(btn, FALSE);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_store_btn_clicked), a);
+        gtk_box_pack_end(GTK_BOX(card), btn, FALSE, FALSE, 0);
+
+        gtk_box_pack_start(GTK_BOX(g_store_list), card, FALSE, FALSE, 0);
+    }
+    if (!g_catalog) {
+        GtkWidget *empty = gtk_label_new("No catalog found.\nCheck /usr/share/aurora/store/catalog");
+        gtk_style_context_add_class(gtk_widget_get_style_context(empty), "sdesc");
+        gtk_box_pack_start(GTK_BOX(g_store_list), empty, FALSE, FALSE, 0);
+    }
+
+    gtk_container_add(GTK_CONTAINER(scroll), g_store_list);
+    gtk_box_pack_start(GTK_BOX(v), scroll, TRUE, TRUE, 0);
+    gtk_container_add(GTK_CONTAINER(g_store), v);
+    /* built hidden; toggled by the Store button */
+}
+
+static void on_store_btn(GtkButton *b, gpointer u) { toggle(g_store); }
+
+/* ================= desktop chrome ================= */
+
+/* Best-effort brightness: write the first /sys/class/backlight device. No-ops
+ * on hardware without a backlight (e.g. a VM) — that's expected, not an error. */
+static void set_brightness_pct(int pct) {
+    GDir *d = g_dir_open("/sys/class/backlight", 0, NULL);
+    if (!d) return;
+    const char *n = g_dir_read_name(d);
+    if (n) {
+        char *mp = g_build_filename("/sys/class/backlight", n, "max_brightness", NULL);
+        char *bp = g_build_filename("/sys/class/backlight", n, "brightness", NULL);
+        char *mx = NULL;
+        if (g_file_get_contents(mp, &mx, NULL, NULL)) {
+            int v = atoi(mx) * pct / 100;
+            char buf[32]; g_snprintf(buf, sizeof buf, "%d", v);
+            g_file_set_contents(bp, buf, -1, NULL);
+            g_free(mx);
+        }
+        g_free(mp); g_free(bp);
+    }
+    g_dir_close(d);
+}
+static void set_volume_pct(int pct) {
+    char *cmd = g_strdup_printf("amixer -q sset Master %d%%", pct);
+    launch(cmd); g_free(cmd);
+}
+
+/* ---------- night light: a warm, click-through full-screen overlay ---------- */
+static void nightlight_apply(void) {
+    if (!g_nightlight) return;
+    if (g_night_on) {
+        gtk_style_context_add_class(gtk_widget_get_style_context(g_nightlight), "on");
+        gtk_widget_show_all(g_nightlight);
+        GdkWindow *w = gtk_widget_get_window(g_nightlight);
+        if (w) { cairo_region_t *e = cairo_region_create();
+                 gdk_window_input_shape_combine_region(w, e, 0, 0); cairo_region_destroy(e); }
+    } else {
+        gtk_widget_hide(g_nightlight);
+    }
+}
+static void build_nightlight(void) {
+    g_nightlight = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, TRUE, TRUE, TRUE, -1);
+    gtk_widget_set_name(g_nightlight, "nightlight");
+    gtk_widget_set_size_request(g_nightlight, -1, AURORA_COVER_H);
+    /* built hidden; shown only while night light is on */
+}
+
+/* ---------- toast ---------- */
+static guint g_toast_timer = 0;
+static gboolean toast_hide(gpointer u) { if (g_toast) gtk_widget_hide(g_toast); g_toast_timer = 0; return G_SOURCE_REMOVE; }
+static void aurora_toast(const char *glyph, const char *text) {
+    if (!g_toast) return;
+    char *m = g_strdup_printf("%s   %s", glyph ? glyph : "◆", text);
+    gtk_label_set_text(GTK_LABEL(g_toast_lbl), m);
+    g_free(m);
+    gtk_widget_show_all(g_toast);
+    if (g_toast_timer) g_source_remove(g_toast_timer);
+    g_toast_timer = g_timeout_add(2600, toast_hide, NULL);
+}
+static void build_toast(void) {
+    g_toast = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, FALSE, TRUE, FALSE, TRUE, -1);
+    gtk_widget_set_name(g_toast, "toast");
+    gtk_layer_set_margin(GTK_WINDOW(g_toast), GTK_LAYER_SHELL_EDGE_BOTTOM, 86);
+    gtk_layer_set_margin(GTK_WINDOW(g_toast), GTK_LAYER_SHELL_EDGE_RIGHT, 16);
+    g_toast_lbl = gtk_label_new("");
+    gtk_widget_set_margin_start(g_toast_lbl, 16); gtk_widget_set_margin_end(g_toast_lbl, 16);
+    gtk_widget_set_margin_top(g_toast_lbl, 12);   gtk_widget_set_margin_bottom(g_toast_lbl, 12);
+    gtk_container_add(GTK_CONTAINER(g_toast), g_toast_lbl);
+}
+
+/* ---------- control center ---------- */
+static void on_cc_toggle(GtkButton *b, gpointer u) {
+    const char *name = u;
+    gboolean on = !GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "on"));
+    g_object_set_data(G_OBJECT(b), "on", GINT_TO_POINTER(on));
+    GtkStyleContext *sc = gtk_widget_get_style_context(GTK_WIDGET(b));
+    if (on) gtk_style_context_add_class(sc, "on"); else gtk_style_context_remove_class(sc, "on");
+    if (!g_strcmp0(name, "Night Light")) { g_night_on = on; nightlight_apply(); }
+    char *msg = g_strdup_printf("%s %s", name, on ? "on" : "off");
+    aurora_toast("◑", msg); g_free(msg);
+}
+static void on_bright_changed(GtkRange *r, gpointer u) { set_brightness_pct((int)gtk_range_get_value(r)); }
+static void on_vol_changed(GtkRange *r, gpointer u)    { set_volume_pct((int)gtk_range_get_value(r)); }
+static void show_lock(void);
+static void on_cc_power(GtkButton *b, gpointer u) { if (g_cc) gtk_widget_hide(g_cc); show_lock(); }
+
+static void build_control_center(void) {
+    g_cc = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, FALSE, FALSE, TRUE, -1);
+    gtk_widget_set_name(g_cc, "cc");
+    gtk_layer_set_keyboard_mode(GTK_WINDOW(g_cc), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
+    gtk_layer_set_margin(GTK_WINDOW(g_cc), GTK_LAYER_SHELL_EDGE_TOP, 46);
+    gtk_layer_set_margin(GTK_WINDOW(g_cc), GTK_LAYER_SHELL_EDGE_RIGHT, 8);
+    gtk_widget_set_size_request(g_cc, 360, -1);
+
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(v, 16); gtk_widget_set_margin_end(v, 16);
+    gtk_widget_set_margin_top(v, 16);   gtk_widget_set_margin_bottom(v, 16);
+
+    GtkWidget *eb = gtk_label_new("CONTROL CENTER");
+    gtk_style_context_add_class(gtk_widget_get_style_context(eb), "eyebrow");
+    gtk_widget_set_halign(eb, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(v), eb, FALSE, FALSE, 0);
+
+    /* spectrum toggles: name, glyph, hue-class */
+    struct { const char *name, *glyph, *hue; gboolean on; } tg[] = {
+        {"WiFi", "⇡", "h-teal", TRUE}, {"Bluetooth", "∗", "h-violet", FALSE},
+        {"Night Light", "◐", "h-rose", FALSE}, {"Do Not Disturb", "◔", "h-pink", FALSE},
+        {"Airplane", "▲", "h-green", FALSE}, {"Nearby", "◎", "h-teal", FALSE},
+    };
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 9);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 9);
+    gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
+    for (int i = 0; i < 6; i++) {
+        GtkWidget *b = gtk_button_new();
+        GtkStyleContext *sc = gtk_widget_get_style_context(b);
+        gtk_style_context_add_class(sc, "qt");
+        gtk_style_context_add_class(sc, tg[i].hue);
+        gtk_widget_set_focus_on_click(b, FALSE);
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        GtkWidget *ic = gtk_label_new(tg[i].glyph);
+        gtk_style_context_add_class(gtk_widget_get_style_context(ic), "qic");
+        GtkWidget *nm = gtk_label_new(tg[i].name);
+        gtk_label_set_xalign(GTK_LABEL(nm), 0.0);
+        gtk_box_pack_start(GTK_BOX(row), ic, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(row), nm, TRUE, TRUE, 0);
+        gtk_container_add(GTK_CONTAINER(b), row);
+        g_object_set_data(G_OBJECT(b), "on", GINT_TO_POINTER(tg[i].on));
+        if (tg[i].on) gtk_style_context_add_class(sc, "on");
+        g_signal_connect(b, "clicked", G_CALLBACK(on_cc_toggle), (gpointer)tg[i].name);
+        gtk_grid_attach(GTK_GRID(grid), b, i % 2, i / 2, 1, 1);
+    }
+    gtk_box_pack_start(GTK_BOX(v), grid, FALSE, FALSE, 0);
+
+    /* sliders */
+    GtkWidget *br = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 20, 100, 1);
+    gtk_range_set_value(GTK_RANGE(br), 90); gtk_scale_set_draw_value(GTK_SCALE(br), FALSE);
+    g_signal_connect(br, "value-changed", G_CALLBACK(on_bright_changed), NULL);
+    GtkWidget *vol = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100, 1);
+    gtk_range_set_value(GTK_RANGE(vol), 65); gtk_scale_set_draw_value(GTK_SCALE(vol), FALSE);
+    g_signal_connect(vol, "value-changed", G_CALLBACK(on_vol_changed), NULL);
+    for (int i = 0; i < 2; i++) {
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+        GtkWidget *gi = gtk_label_new(i == 0 ? "☀" : "◑");
+        gtk_style_context_add_class(gtk_widget_get_style_context(gi), "sgi");
+        gtk_box_pack_start(GTK_BOX(row), gi, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(row), i == 0 ? br : vol, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(v), row, FALSE, FALSE, 0);
+    }
+
+    /* footer: user + power */
+    GtkWidget *foot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_margin_top(foot, 6);
+    GtkWidget *who = gtk_label_new("  Aneek");
+    gtk_style_context_add_class(gtk_widget_get_style_context(who), "who");
+    gtk_box_pack_start(GTK_BOX(foot), who, FALSE, FALSE, 0);
+    GtkWidget *pwr = gtk_button_new_with_label("⏻");
+    gtk_style_context_add_class(gtk_widget_get_style_context(pwr), "tbtn");
+    gtk_widget_set_focus_on_click(pwr, FALSE);
+    g_signal_connect(pwr, "clicked", G_CALLBACK(on_cc_power), NULL);
+    gtk_box_pack_end(GTK_BOX(foot), pwr, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), foot, FALSE, FALSE, 0);
+
+    gtk_container_add(GTK_CONTAINER(g_cc), v);
+}
+static void on_cc_btn(GtkButton *b, gpointer u) { toggle(g_cc); }
+
+/* ---------- notifications + calendar ---------- */
+static void on_noti_clear(GtkButton *b, gpointer u) {
+    if (!g_noti_list) return;
+    GList *ch = gtk_container_get_children(GTK_CONTAINER(g_noti_list));
+    for (GList *l = ch; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(ch);
+    GtkWidget *empty = gtk_label_new("You're all caught up.");
+    gtk_style_context_add_class(gtk_widget_get_style_context(empty), "nempty");
+    gtk_box_pack_start(GTK_BOX(g_noti_list), empty, FALSE, FALSE, 0);
+    gtk_widget_show_all(g_noti_list);
+}
+static void noti_add(const char *src, const char *hue, const char *title, const char *body) {
+    if (!g_noti_list) return;
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+    gtk_style_context_add_class(gtk_widget_get_style_context(card), "ncard");
+    char *sm = g_strdup_printf("<span foreground='%s'>●</span>  %s", hue, src);
+    GtkWidget *s = gtk_label_new(NULL); gtk_label_set_markup(GTK_LABEL(s), sm); g_free(sm);
+    gtk_label_set_xalign(GTK_LABEL(s), 0.0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(s), "nsrc");
+    GtkWidget *t = gtk_label_new(title); gtk_label_set_xalign(GTK_LABEL(t), 0.0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(t), "ntitle");
+    GtkWidget *p = gtk_label_new(body); gtk_label_set_xalign(GTK_LABEL(p), 0.0);
+    gtk_label_set_line_wrap(GTK_LABEL(p), TRUE);
+    gtk_style_context_add_class(gtk_widget_get_style_context(p), "nbody");
+    gtk_box_pack_start(GTK_BOX(card), s, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), t, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), p, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_noti_list), card, FALSE, FALSE, 0);
+}
+static void build_notifications(void) {
+    g_noti = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, FALSE, FALSE, FALSE, -1);
+    gtk_widget_set_name(g_noti, "noti");
+    gtk_layer_set_margin(GTK_WINDOW(g_noti), GTK_LAYER_SHELL_EDGE_TOP, 46);
+    gtk_widget_set_size_request(g_noti, 360, -1);
+
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_start(v, 16); gtk_widget_set_margin_end(v, 16);
+    gtk_widget_set_margin_top(v, 14);   gtk_widget_set_margin_bottom(v, 16);
+
+    GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *ti = gtk_label_new("Notifications");
+    gtk_style_context_add_class(gtk_widget_get_style_context(ti), "title");
+    gtk_widget_set_halign(ti, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(h), ti, TRUE, TRUE, 0);
+    GtkWidget *clr = gtk_button_new_with_label("Clear all");
+    gtk_style_context_add_class(gtk_widget_get_style_context(clr), "nclear");
+    gtk_widget_set_focus_on_click(clr, FALSE);
+    g_signal_connect(clr, "clicked", G_CALLBACK(on_noti_clear), NULL);
+    gtk_box_pack_end(GTK_BOX(h), clr, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), h, FALSE, FALSE, 0);
+
+    g_noti_list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    noti_add("Aurora Store", "#34e0c8", "Calculator installed", "GNOME Calculator is ready in Apps and the dock.");
+    noti_add("Aura", "#8b7cf6", "Good morning", "3 updates available and battery is healthy. Ask me for the rundown.");
+    gtk_box_pack_start(GTK_BOX(v), g_noti_list, FALSE, FALSE, 0);
+
+    /* calendar */
+    GtkWidget *cal = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_style_context_add_class(gtk_widget_get_style_context(cal), "cal");
+    GDateTime *now = g_date_time_new_now_local();
+    char *m = g_date_time_format(now, "%B");
+    char *d = g_date_time_format(now, "%e");
+    char *w = g_date_time_format(now, "%A");
+    GtkWidget *lm = gtk_label_new(m); gtk_style_context_add_class(gtk_widget_get_style_context(lm), "cal-m");
+    GtkWidget *ld = gtk_label_new(g_strstrip(d)); gtk_style_context_add_class(gtk_widget_get_style_context(ld), "cal-d");
+    GtkWidget *lw = gtk_label_new(w); gtk_style_context_add_class(gtk_widget_get_style_context(lw), "cal-w");
+    gtk_box_pack_start(GTK_BOX(cal), lm, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(cal), ld, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(cal), lw, FALSE, FALSE, 0);
+    g_free(m); g_free(d); g_free(w); g_date_time_unref(now);
+    gtk_box_pack_start(GTK_BOX(v), cal, FALSE, FALSE, 0);
+
+    gtk_container_add(GTK_CONTAINER(g_noti), v);
+}
+static void on_noti_btn(GtkButton *b, gpointer u) { toggle(g_noti); }
+
+/* ---------- widgets ---------- */
+static gboolean update_stats(gpointer u) {
+    if (!g_wstats || !gtk_widget_get_visible(g_widgets)) return G_SOURCE_CONTINUE;
+    char *mi = NULL; long total = 0, avail = 0;
+    if (g_file_get_contents("/proc/meminfo", &mi, NULL, NULL)) {
+        char *p;
+        if ((p = strstr(mi, "MemTotal:")))     total = atol(p + 9);
+        if ((p = strstr(mi, "MemAvailable:"))) avail = atol(p + 13);
+        g_free(mi);
+    }
+    char *la = NULL; double load = 0;
+    if (g_file_get_contents("/proc/loadavg", &la, NULL, NULL)) { load = atof(la); g_free(la); }
+    double usedg = (total - avail) / 1048576.0, totg = total / 1048576.0;
+    char *s = g_strdup_printf("%.1f GB of %.1f GB · load %.2f", usedg, totg, load);
+    gtk_label_set_text(GTK_LABEL(g_wstats), s);
+    g_free(s);
+    return G_SOURCE_CONTINUE;
+}
+/* Aura "your day": one-shot LLM summary, off the UI thread */
+static gboolean day_apply(gpointer data) { char *r = data; if (g_wday) gtk_label_set_text(GTK_LABEL(g_wday), r); g_free(r); return G_SOURCE_REMOVE; }
+static gpointer day_worker(gpointer u) {
+    char *r = NULL;
+    /* the model may still be loading right after boot — retry until it answers */
+    for (int i = 0; i < 5; i++) {
+        g_free(r);
+        r = aura_ask("In one short sentence, give me a friendly morning summary of my system.");
+        if (r && !strstr(r, "warming up") && !strstr(r, "waking up") && !strstr(r, "offline")) break;
+        g_usleep(6 * G_USEC_PER_SEC);
+    }
+    g_idle_add(day_apply, r); return NULL;
+}
+static void build_widgets(void) {
+    g_widgets = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, FALSE, TRUE, FALSE, -1);
+    gtk_widget_set_name(g_widgets, "widgets");
+    gtk_layer_set_margin(GTK_WINDOW(g_widgets), GTK_LAYER_SHELL_EDGE_TOP, 46);
+    gtk_layer_set_margin(GTK_WINDOW(g_widgets), GTK_LAYER_SHELL_EDGE_LEFT, 8);
+    gtk_widget_set_size_request(g_widgets, 420, -1);
+
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(v, 16); gtk_widget_set_margin_end(v, 16);
+    gtk_widget_set_margin_top(v, 16);   gtk_widget_set_margin_bottom(v, 16);
+    /* header: eyebrow on the left, a close (✕) button on the right so the
+     * panel has an obvious dismiss control (it's an overlay with no click-away). */
+    GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *eb = gtk_label_new("YOUR GLANCE");
+    gtk_style_context_add_class(gtk_widget_get_style_context(eb), "eyebrow");
+    gtk_widget_set_halign(eb, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(hdr), eb, TRUE, TRUE, 0);
+    GtkWidget *cls = gtk_button_new_with_label("✕");
+    gtk_style_context_add_class(gtk_widget_get_style_context(cls), "pclose");
+    gtk_widget_set_halign(cls, GTK_ALIGN_END);
+    g_signal_connect_swapped(cls, "clicked", G_CALLBACK(gtk_widget_hide), g_widgets);
+    gtk_box_pack_end(GTK_BOX(hdr), cls, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), hdr, FALSE, FALSE, 0);
+
+    /* Aura day card */
+    GtkWidget *ai = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_style_context_add_class(gtk_widget_get_style_context(ai), "wcard-ai");
+    GtkWidget *ah = gtk_label_new("◆  Aura · your day");
+    gtk_widget_set_halign(ah, GTK_ALIGN_START);
+    gtk_style_context_add_class(gtk_widget_get_style_context(ah), "wh");
+    g_wday = gtk_label_new("Warming up your summary…");
+    gtk_label_set_line_wrap(GTK_LABEL(g_wday), TRUE); gtk_label_set_xalign(GTK_LABEL(g_wday), 0.0);
+    gtk_box_pack_start(GTK_BOX(ai), ah, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ai), g_wday, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), ai, FALSE, FALSE, 0);
+
+    /* system card */
+    GtkWidget *sc = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_style_context_add_class(gtk_widget_get_style_context(sc), "wcard");
+    GtkWidget *sh = gtk_label_new("▤  SYSTEM");
+    gtk_widget_set_halign(sh, GTK_ALIGN_START);
+    gtk_style_context_add_class(gtk_widget_get_style_context(sh), "wh");
+    g_wstats = gtk_label_new("reading…");
+    gtk_widget_set_halign(g_wstats, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(sc), sh, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sc), g_wstats, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), sc, FALSE, FALSE, 0);
+
+    /* weather card (placeholder until a network source is wired) */
+    GtkWidget *wc = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_style_context_add_class(gtk_widget_get_style_context(wc), "wcard");
+    GtkWidget *wh = gtk_label_new("◔  WEATHER");
+    gtk_widget_set_halign(wh, GTK_ALIGN_START);
+    gtk_style_context_add_class(gtk_widget_get_style_context(wh), "wh");
+    GtkWidget *wt = gtk_label_new("Connect Wi-Fi to see local conditions.");
+    gtk_widget_set_halign(wt, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(wc), wh, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(wc), wt, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), wc, FALSE, FALSE, 0);
+
+    gtk_container_add(GTK_CONTAINER(g_widgets), v);
+}
+static void on_widgets_btn(GtkButton *b, gpointer u) {
+    toggle(g_widgets);
+    if (gtk_widget_get_visible(g_widgets)) {
+        update_stats(NULL);
+        GThread *t = g_thread_new("aura-day", day_worker, NULL);
+        if (t) g_thread_unref(t);
+    }
+}
+
+/* ---------- lock screen ---------- */
+static gboolean lock_key(GtkWidget *w, GdkEventKey *e, gpointer u) {
+    if (e->keyval == GDK_KEY_Return || e->keyval == GDK_KEY_Escape) gtk_widget_hide(g_lock);
+    return TRUE;
+}
+static gboolean lock_click(GtkWidget *w, GdkEventButton *e, gpointer u) { gtk_widget_hide(g_lock); return TRUE; }
+static void show_lock(void) {
+    if (!g_lock) return;
+    gtk_widget_show_all(g_lock);
+    gtk_widget_grab_focus(g_lock);
+}
+static void build_lock(void) {
+    g_lock = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, TRUE, TRUE, TRUE, -1);
+    gtk_widget_set_name(g_lock, "lock");
+    gtk_layer_set_keyboard_mode(GTK_WINDOW(g_lock), GTK_LAYER_SHELL_KEYBOARD_MODE_EXCLUSIVE);
+    gtk_widget_set_size_request(g_lock, -1, AURORA_COVER_H);
+    gtk_widget_set_events(g_lock, GDK_BUTTON_PRESS_MASK | GDK_KEY_PRESS_MASK);
+    g_signal_connect(g_lock, "key-press-event", G_CALLBACK(lock_key), NULL);
+    g_signal_connect(g_lock, "button-press-event", G_CALLBACK(lock_click), NULL);
+    gtk_widget_set_can_focus(g_lock, TRUE);
+
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_halign(v, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(v, GTK_ALIGN_CENTER);
+    g_lock_time = gtk_label_new("");
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_lock_time), "lock-time");
+    g_lock_date = gtk_label_new("");
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_lock_date), "lock-date");
+    GtkWidget *hint = gtk_label_new("Press Enter or click to unlock");
+    gtk_style_context_add_class(gtk_widget_get_style_context(hint), "lock-hint");
+    gtk_widget_set_margin_top(hint, 40);
+    gtk_box_pack_start(GTK_BOX(v), g_lock_time, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), g_lock_date, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), hint, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(g_lock), v);
+}
+
+/* ---------- animated aurora band (the signature) ---------- */
+static gboolean draw_aurora(GtkWidget *w, cairo_t *cr, gpointer u) {
+    GtkAllocation a; gtk_widget_get_allocation(w, &a);
+    double W = a.width, H = a.height, p = g_aurora_phase / 100.0;
+    struct { double r, g, b, base, spd; } rib[] = {
+        {0.20, 0.88, 0.78, 0.28, 1.0}, {0.42, 0.90, 0.63, 0.52, 1.4},
+        {0.55, 0.49, 0.96, 0.70, 0.8}, {0.94, 0.45, 0.71, 0.44, 1.7},
+    };
+    /* start fully transparent so only the glow shows over the wallpaper */
+    cairo_set_source_rgba(cr, 0, 0, 0, 0);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_paint(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SCREEN);
+    for (int i = 0; i < 4; i++) {
+        double cx = W * (rib[i].base + 0.16 * sin(p * rib[i].spd + i));
+        double cy = H * 0.28 + 22 * sin(p * 0.7 + i * 1.3);
+        cairo_pattern_t *pt = cairo_pattern_create_radial(cx, cy, 0, cx, cy, W * 0.5);
+        double al = g_night_on ? 0.12 : 0.32;
+        cairo_pattern_add_color_stop_rgba(pt, 0, rib[i].r, rib[i].g, rib[i].b, al);
+        cairo_pattern_add_color_stop_rgba(pt, 1, rib[i].r, rib[i].g, rib[i].b, 0);
+        cairo_set_source(cr, pt); cairo_paint(cr);
+        cairo_pattern_destroy(pt);
+    }
+    return FALSE;
+}
+static gboolean tick_aurora(gpointer canvas) { g_aurora_phase++; gtk_widget_queue_draw(GTK_WIDGET(canvas)); return G_SOURCE_CONTINUE; }
+static void build_aurora_band(void) {
+    GtkWidget *band = layer_window(GTK_LAYER_SHELL_LAYER_BACKGROUND, TRUE, FALSE, TRUE, TRUE, -1);
+    gtk_widget_set_name(band, "aurora-band");
+    gtk_widget_set_size_request(band, -1, 170);
+    /* an RGBA visual + app-paintable stops GTK filling the window opaque (white) */
+    GdkScreen *scr = gdk_screen_get_default();
+    GdkVisual *rgba = gdk_screen_get_rgba_visual(scr);
+    if (rgba) gtk_widget_set_visual(band, rgba);
+    gtk_widget_set_app_paintable(band, TRUE);
+    GtkWidget *canvas = gtk_drawing_area_new();
+    gtk_widget_set_app_paintable(canvas, TRUE);
+    if (rgba) gtk_widget_set_visual(canvas, rgba);
+    g_signal_connect(canvas, "draw", G_CALLBACK(draw_aurora), NULL);
+    gtk_container_add(GTK_CONTAINER(band), canvas);
+    gtk_widget_show_all(band);
+    g_timeout_add(140, tick_aurora, canvas);
+}
+
+/* ---------- desktop context menu (right-click wallpaper) ---------- */
+/* ---- Aurora menu (top-bar logo): About + session power ---- */
+static void am_about(GtkMenuItem *i, gpointer u) {
+    /* Custom About window (GtkAboutDialog renders as an unthemed washed-out
+     * light dialog on our dark desktop) — opaque dark card in Aurora identity. */
+    GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_widget_set_name(w, "aboutwin");
+    gtk_window_set_title(GTK_WINDOW(w), "About AuroraOS");
+    gtk_window_set_default_size(GTK_WINDOW(w), 380, 320);
+    gtk_window_set_resizable(GTK_WINDOW(w), FALSE);
+
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_margin_top(v, 30); gtk_widget_set_margin_bottom(v, 24);
+    gtk_widget_set_margin_start(v, 28); gtk_widget_set_margin_end(v, 28);
+
+    GtkWidget *mark = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(mark), "<span foreground='#34e0c8' size='xx-large'>◗</span>");
+    GtkWidget *name = gtk_label_new("AuroraOS");
+    gtk_style_context_add_class(gtk_widget_get_style_context(name), "abt-name");
+    GtkWidget *ver = gtk_label_new("Version 1.0 — Daybreak");
+    gtk_style_context_add_class(gtk_widget_get_style_context(ver), "abt-ver");
+    GtkWidget *desc = gtk_label_new("A private, on-device AI desktop.\n"
+        "Linux From Scratch · labwc/Wayland\nThe Aurora shell · on-device Aura");
+    gtk_label_set_justify(GTK_LABEL(desc), GTK_JUSTIFY_CENTER);
+    gtk_style_context_add_class(gtk_widget_get_style_context(desc), "abt-desc");
+    GtkWidget *link = gtk_label_new("github.com/Aneek1/auroraos");
+    gtk_style_context_add_class(gtk_widget_get_style_context(link), "abt-link");
+    GtkWidget *close = gtk_button_new_with_label("Close");
+    gtk_style_context_add_class(gtk_widget_get_style_context(close), "abt-close");
+    gtk_widget_set_halign(close, GTK_ALIGN_CENTER);
+    g_signal_connect_swapped(close, "clicked", G_CALLBACK(gtk_widget_destroy), w);
+
+    gtk_box_pack_start(GTK_BOX(v), mark, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), name, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), ver, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), desc, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(v), link, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), close, FALSE, FALSE, 10);
+    gtk_container_add(GTK_CONTAINER(w), v);
+    gtk_widget_show_all(w);
+}
+/* pull a top-level JSON string value for `key` out of `json` (flat objects). */
+static char *json_str(const char *json, const char *key) {
+    if (!json) return NULL;
+    char *pat = g_strdup_printf("\"%s\"", key);
+    char *p = strstr(json, pat); g_free(pat);
+    if (!p) return NULL;
+    p = strchr(p, ':'); if (!p) return NULL; p++;
+    while (*p == ' ' || *p == '"') p++;
+    GString *out = g_string_new("");
+    for (; *p && *p != '"'; p++) {
+        if (*p == '\\' && p[1]) { p++; g_string_append_c(out, *p == 'n' ? '\n' : *p); }
+        else g_string_append_c(out, *p);
+    }
+    return g_string_free(out, FALSE);
+}
+static void am_persist(GtkMenuItem *i, gpointer u) {
+    aurora_toast("▤", "Setting up persistent storage…");
+    char *r = aurorad_send("POST", "/system/persist-setup", "{}");
+    char *msg = json_str(r, "error");
+    if (!msg) msg = json_str(r, "message");
+    aurora_toast("▤", msg ? msg : "Storage: no response from aurorad.");
+    g_free(msg); g_free(r);
+}
+static void am_lock(GtkMenuItem *i, gpointer u)     { show_lock(); }
+static void am_restart(GtkMenuItem *i, gpointer u)  { aurora_toast("↻", "Restarting…"); launch("systemctl reboot"); }
+static void am_shutdown(GtkMenuItem *i, gpointer u) { aurora_toast("⏻", "Shutting down…"); launch("systemctl poweroff"); }
+static void on_logo_clicked(GtkButton *b, gpointer u) {
+    if (g_auroramenu)
+        gtk_menu_popup_at_widget(GTK_MENU(g_auroramenu), GTK_WIDGET(b),
+            GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
+}
+static void build_aurora_menu(void) {
+    g_auroramenu = gtk_menu_new();
+    struct { const char *label; GCallback cb; } it[] = {
+        {"◗    About AuroraOS",         G_CALLBACK(am_about)},
+        {"▤    Enable Persistent Storage", G_CALLBACK(am_persist)},
+        {"◔    Lock",                   G_CALLBACK(am_lock)},
+        {"↻    Restart",                G_CALLBACK(am_restart)},
+        {"⏻    Shut Down",              G_CALLBACK(am_shutdown)},
+    };
+    for (int i = 0; i < (int)(sizeof(it)/sizeof(it[0])); i++) {
+        GtkWidget *mi = gtk_menu_item_new_with_label(it[i].label);
+        g_signal_connect(mi, "activate", it[i].cb, NULL);
+        gtk_menu_shell_append(GTK_MENU_SHELL(g_auroramenu), mi);
+    }
+    gtk_widget_show_all(g_auroramenu);
+}
+
+static GtkWidget *g_ctxmenu = NULL;
+static void ctx_wall(GtkMenuItem *i, gpointer u)    { aurora_toast("▦", "Only daybreak is installed — for now."); }
+static void ctx_widgets(GtkMenuItem *i, gpointer u) { if (!gtk_widget_get_visible(g_widgets)) on_widgets_btn(NULL, NULL); }
+static void ctx_night(GtkMenuItem *i, gpointer u)   { g_night_on = !g_night_on; nightlight_apply(); aurora_toast("◑", g_night_on ? "Night light on" : "Night light off"); }
+static void ctx_ask(GtkMenuItem *i, gpointer u)     { if (g_aura) gtk_widget_show_all(g_aura); }
+static gboolean wallpaper_press(GtkWidget *w, GdkEventButton *e, gpointer u) {
+    if (e->type == GDK_BUTTON_PRESS && e->button == 3 && g_ctxmenu) {
+        gtk_menu_popup_at_pointer(GTK_MENU(g_ctxmenu), (GdkEvent *)e);
+        return TRUE;
+    }
+    return FALSE;
+}
+static void build_context_menu(void) {
+    g_ctxmenu = gtk_menu_new();
+    struct { const char *label; GCallback cb; } it[] = {
+        {"▦    Change wallpaper", G_CALLBACK(ctx_wall)},
+        {"▤    Show widgets",     G_CALLBACK(ctx_widgets)},
+        {"◑    Toggle night light", G_CALLBACK(ctx_night)},
+        {"◆    Ask Aura",         G_CALLBACK(ctx_ask)},
+    };
+    for (int i = 0; i < 4; i++) {
+        GtkWidget *mi = gtk_menu_item_new_with_label(it[i].label);
+        g_signal_connect(mi, "activate", it[i].cb, NULL);
+        gtk_menu_shell_append(GTK_MENU_SHELL(g_ctxmenu), mi);
+    }
+    gtk_widget_show_all(g_ctxmenu);
+    if (g_wallpaper) g_signal_connect(g_wallpaper, "button-press-event", G_CALLBACK(wallpaper_press), NULL);
+}
+
 int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
     if (!gtk_layer_is_supported()) {
@@ -520,19 +1684,33 @@ int main(int argc, char **argv) {
 
     scan_apps();
     build_wallpaper();
+    build_aurora_band();
     build_topbar();
     build_dock();
     build_launcher();
     build_aura();
+    build_store();
+    build_control_center();
+    build_notifications();
+    build_widgets();
+    build_nightlight();
+    build_toast();
+    build_lock();
+    build_context_menu();
+    build_aurora_menu();
+    build_splash();          /* fullscreen boot splash, fades out after ~2s */
+    taskbar_init();          /* start listening for running windows */
 
     /* Popovers start closed — the greeting message's show_all realizes the Aura
      * surface, so hide it explicitly after building. Opened via the top-bar
      * buttons; Aura also has its own × close. */
     gtk_widget_hide(g_launcher);
     gtk_widget_hide(g_aura);
+    gtk_widget_hide(g_store);
 
     tick(NULL);
     g_timeout_add_seconds(10, tick, NULL);
+    g_timeout_add_seconds(2, update_stats, NULL);
     gtk_main();
     return 0;
 }

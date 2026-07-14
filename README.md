@@ -91,9 +91,10 @@ Login is automatic on tty1 as the unprivileged `aurora` user, which starts
 `labwc`; its autostart launches `aura-llm-launch` (the Aura LLM server),
 `aurorad` (system bridge on 127.0.0.1:7212), and `aurora-shell` (the desktop).
 Click **◆ Aura** in the top bar to chat with the assistant or give it commands;
-the first reply after boot waits a few seconds for the model to load. Open a
-terminal from the dock or with **Super+Return** (`foot`); close windows with the
-titlebar **×**, **Alt+F4**, or **Super+Q**. TTY2 (Ctrl-Alt-F2) gives you a
+the first reply after boot waits a few seconds for the model to load. **◇ Store**
+opens the Aurora Store to install apps in one click, and **▦ Apps** opens the
+searchable launcher. Open a terminal from the dock or with **Super+Return**
+(`foot`); close windows with the titlebar **×**, **Alt+F4**, or **Super+Q**. TTY2 (Ctrl-Alt-F2) gives you a
 normal shell — user `aneek`, password set during script 7.
 
 ## Installing & running applications
@@ -102,6 +103,15 @@ AuroraOS boots into **labwc** (a small Wayland compositor); the Aurora shell is 
 base layer and native apps float on top. Open a terminal with **Super+Return**
 (`foot`). Ways to get software onto the system:
 
+- **Aurora Store** (easiest — one click). Click **◇ Store** in the top bar for a
+  curated catalog of GTK apps (calculator, text editor, notes, system monitor…).
+  Hit **Get** and aurorad downloads the app's AppImage, unpacks it under
+  `~/Applications` (extract-and-run — no FUSE needed), and drops a launcher into
+  the app grid; the button flips to **Open**. The catalog is a plain
+  pipe-delimited file at `/usr/share/aurora/store/catalog` (`id|name|category|
+  icon|description|github-repo-or-url`) — add a line to add an app. Entries can
+  pin a direct URL or name a GitHub repo whose latest x86_64 `.AppImage` release
+  is resolved at install time, so the catalog survives version bumps.
 - **Nix** (recommended for CLI/dev tools). Run `aurora-get-nix` once (needs
   network), then `nix profile install nixpkgs#<pkg>`. Installed apps appear in the
   shell's **Installed** list automatically (aurorad scans `~/.nix-profile`).

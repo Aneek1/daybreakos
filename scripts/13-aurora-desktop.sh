@@ -182,12 +182,63 @@ install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
 install -Dm644 /aurora/shell/aura_llm.py       /usr/lib/aurora/aura_llm.py
 install -Dm755 /aurora/shell/aurorad.py         /usr/lib/aurora/aurorad
 
+# Aurora Store catalog (pipe-delimited; read by both aurorad and aurora-shell)
+install -Dm644 /aurora/store/catalog /usr/share/aurora/store/catalog
+
+# CA certificates — the LFS base ships none, so Python's ssl/urllib can't verify
+# github.com and every Aurora Store download fails. Install a Mozilla CA bundle at
+# OpenSSL's default path (Python reads get_default_verify_paths().openssl_cafile
+# = /etc/ssl/cert.pem) plus the common ca-certificates.crt location.
+if [ -f /aurora/config/cacert.pem ]; then
+  install -Dm644 /aurora/config/cacert.pem /etc/ssl/cert.pem
+  install -Dm644 /aurora/config/cacert.pem /etc/ssl/certs/ca-certificates.crt
+else
+  echo "!! config/cacert.pem missing — Aurora Store HTTPS downloads will fail cert verify"
+fi
+
+# ---------- 5b) SVG icon support (libcroco + librsvg, C — no Rust) ----------
+# The LFS base has no SVG pixbuf loader, so app icons (mostly SVG) can't render.
+# Build the C librsvg 2.40 against the base libs; it installs the gdk-pixbuf SVG
+# loader. librsvg 2.40 needs a one-line patch for libxml2 >= 2.12 (xmlError is
+# const now). Sources are expected in /sources (add them to 02-download-sources).
+if [ ! -f /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-svg.so ]; then
+  cd /sources
+  for t in libcroco-0.6.13 librsvg-2.40.21; do
+    [ -d "$t" ] || { [ -f "$t.tar.xz" ] && tar xf "$t.tar.xz"; }
+  done
+  if [ -d libcroco-0.6.13 ] && [ -d librsvg-2.40.21 ]; then
+    ( cd libcroco-0.6.13 && ./configure --prefix=/usr --disable-static && make -j"$(nproc)" && make install )
+    ( cd librsvg-2.40.21 \
+        && sed -i 's/rsvg_xml_noerror (void \*data, xmlErrorPtr error)/rsvg_xml_noerror (void *data, const xmlError *error)/' rsvg-css.c \
+        && ./configure --prefix=/usr --disable-static --disable-introspection --enable-pixbuf-loader \
+        && make -j"$(nproc)" && make install )
+    gdk-pixbuf-query-loaders --update-cache
+  else
+    echo "!! librsvg/libcroco sources not in /sources — SVG app icons will fall back to glyphs"
+  fi
+fi
+
 # ---------- 6) compile the Aurora shell ----------
 echo "==== building aurora-shell ===="
 install -d /usr/share/aurora/desktop /usr/bin
 cc /aurora/shell/aurora-desktop/aurora-shell.c -O2 -o /usr/bin/aurora-shell \
-   $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0)
+   $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0) -lm
 install -Dm644 /aurora/shell/aurora-desktop/style.css /usr/share/aurora/desktop/style.css
+
+# Aurora Settings app (native GTK3, own toplevel) + its launcher entry
+echo "==== building aurora-settings ===="
+cc /aurora/shell/aurora-desktop/aurora-settings.c -O2 -o /usr/bin/aurora-settings \
+   $(pkg-config --cflags --libs gtk+-3.0)
+cat > /usr/share/applications/aurora-settings.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Settings
+Comment=System settings
+Exec=/usr/bin/aurora-settings
+Icon=preferences-system
+Categories=System;Settings;
+Terminal=false
+EOF
 
 # ---------- 7) labwc session + autostart + theme ----------
 install -d /etc/xdg/labwc /var/lib/aurora/.config/labwc
@@ -251,8 +302,16 @@ chmod +x /usr/lib/aurora/aura-llm-launch
 # the session entry point: launch labwc for the aurora user
 cat > /usr/bin/aurora-session <<'EOF'
 #!/bin/sh
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+# Robust runtime dir: logind normally provides XDG_RUNTIME_DIR (/run/user/UID),
+# but if the system bus/logind is slow it may be unset or unwritable — labwc
+# then fails with "unable to open wayland socket". Guarantee a writable dir.
+RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if ! mkdir -p "$RT" 2>/dev/null || [ ! -w "$RT" ]; then
+  RT="/tmp/aurora-rt-$(id -u)"
+  mkdir -p "$RT"
+fi
+chmod 700 "$RT"
+export XDG_RUNTIME_DIR="$RT"
 export XDG_CURRENT_DESKTOP=Aurora
 export GDK_BACKEND=wayland
 export GDK_GL=disable

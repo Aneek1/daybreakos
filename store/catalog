@@ -1,0 +1,14 @@
+# Aurora Store catalog — pipe-delimited so both aurorad (Python) and aurora-shell (C) read it.
+# id|name|category|icon|description|github-repo-or-direct-url
+# Every entry below resolves an x86_64 AppImage and runs on AuroraOS via extract-and-run.
+# Direct .deb URLs are auto-detected (ar magic) and unpacked without dpkg.
+vscode|VS Code|Development|⧉|Microsoft's code editor (Electron, runs via Xwayland).|https://update.code.visualstudio.com/latest/linux-deb-x64/stable
+zen-browser|Zen Browser|Internet|◍|A calm, privacy-respecting Firefox-based web browser.|pkgforge-dev/Zen-Browser-AppImage-Enhanced
+helium-browser|Helium|Internet|◎|A fast Chromium-based web browser.|pkgforge-dev/Helium-Browser-AppImage-Enhanced
+galculator|Galculator|Utility|=|A lightweight GTK scientific calculator.|pkgforge-dev/Galculator-AppImage
+gnome-calculator|Calculator|Utility|÷|The GNOME calculator, basic and advanced modes.|pkgforge-dev/gnome-calculator-AppImage
+gnome-text-editor|Text Editor|Utility|T|A simple, modern text editor for quick edits.|pkgforge-dev/gnome-text-editor-AppImage
+xournalpp|Xournal++|Office|◫|Handwritten notes and PDF annotation.|xournalpp/xournalpp
+gnome-system-monitor|System Monitor|System|▤|View running processes and resource usage.|pkgforge-dev/gnome-system-monitor-AppImage
+files|Files|System|▦|Browse and manage your files and folders.|domesya/Nemo-AppImage
+gnome-calendar|Calendar|Office|▤|View and manage your schedule and events.|fiftydinar/gnome-calendar-appimage

@@ -1,11 +1,15 @@
-#!/bin/bash
-# aurora-session — started by aurora-shell.service as the 'aurora' user.
-# labwc (stacking Wayland compositor). Its autostart launches the Aurora
-# shell (Firefox) as the base window; native apps float on top. Terminal:
-# Super+Return. See docs/superpowers/specs/2026-07-10-external-apps-design.md
-export XDG_RUNTIME_DIR=/run/user/$(id -u)
-mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-export HOME=/var/lib/aurora
-export XDG_CONFIG_HOME=$HOME/.config
-export MOZ_ENABLE_WAYLAND=1
-exec labwc
+#!/bin/sh
+RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+mkdir -p "$RT" 2>/dev/null || true
+[ -w "$RT" ] || { RT="/tmp/aurora-rt-$(id -u)"; mkdir -p "$RT"; }
+chmod 700 "$RT" 2>/dev/null || true
+export XDG_RUNTIME_DIR="$RT"
+export XDG_CURRENT_DESKTOP=Aurora
+export GDK_BACKEND=wayland
+export GDK_GL=disable
+export WLR_RENDERER=pixman
+export WLR_NO_HARDWARE_CURSORS=1
+export AURORAD_PORT=7212
+export AURA_TOOLS=/opt/aura/config/aura-tools.json
+export AURA_LLM_URL=http://127.0.0.1:8080/v1/chat/completions
+exec dbus-run-session -- labwc
