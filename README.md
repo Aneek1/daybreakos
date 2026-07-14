@@ -1,19 +1,24 @@
-# AuroraOS — an LFS-based distro that boots into the "Windows 12 concept" shell
+# AuroraOS — an LFS-based distro with its own native desktop and on-device AI
 
-AuroraOS is built with **Linux From Scratch 12.3 (systemd)**. Instead of a
-traditional desktop, it boots straight into a Wayland kiosk (`cage`) running a
-web shell — the AuroraOS desktop UI (adapted from the Windows 12 concept) —
-wired to real hardware through `aurorad`, a small localhost system API
-(battery, brightness, power, files, app launch).
+AuroraOS is built with **Linux From Scratch 12.3 (systemd)**. It boots into a
+fully custom desktop environment — **Aurora Shell**, written in C with GTK3 and
+`gtk-layer-shell` over the `labwc` Wayland compositor. Not a browser kiosk and
+not an off-the-shelf desktop: the top bar, dock, app launcher, wallpaper, and
+the **Aura** assistant are all Aurora's own code. Aura is an on-device LLM
+(llama.cpp + a bundled Qwen2.5 model) that both chats and controls the desktop —
+"open a terminal", "system status", "set brightness to 40" — running entirely
+offline, no cloud.
 
 ```
-┌────────────────────────────────────────────────┐
-│  shell/index.html  (desktop UI, runs in kiosk) │
-│        │  fetch http://127.0.0.1:7212          │
-│  aurorad.py  (system bridge, root service)     │
-│        │  /sys, systemctl, subprocess          │
-│  LFS 12.3 base system + Linux kernel           │
-└────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  aurora-shell  (native C/GTK3 desktop: bar, dock,     │
+│                 launcher, wallpaper, Aura panel)      │
+│      │  raw socket → 127.0.0.1:7212 (aurorad)         │
+│      │                     │  /ask → 127.0.0.1:8080   │
+│  aurorad.py (system bridge)    llama-server (Aura LLM)│
+│      │  /sys, systemctl, subprocess, app launch       │
+│  labwc (Wayland compositor) · LFS 12.3 base · kernel  │
+└──────────────────────────────────────────────────────┘
 ```
 
 ## Requirements
@@ -50,7 +55,8 @@ qemu-system-x86_64 -enable-kvm -m 8G -smp 4 \
 | 8 | `scripts/08-kernel.sh` | Kernel with `config/kernel.fragment` | ~30 min |
 | 9 | `scripts/09-bootloader.sh` | GRUB (UEFI) + AuroraOS entry | 5 min |
 | 10 | `scripts/10-aurora-shell.sh` | Wayland stack, Firefox, shell, aurorad, services | 1–3 h |
-| 12 | `scripts/12-apps.sh` | External apps: labwc compositor + foot + AppImage + Nix helper | 30 min |
+| 12 | `scripts/12-apps.sh` | External-app stack: labwc compositor + foot terminal + AppImage/Nix helpers | 30 min |
+| 13 | `scripts/13-aurora-desktop.sh` | **Native Aurora desktop**: gtk-layer-shell, `aurora-shell`, Aura LLM (llama.cpp + model), labwc session + autologin | 1–2 h |
 | 11 | `scripts/11-make-iso.sh` | Optional: squashfs live ISO (run last) | 20 min |
 
 Scripts 3–4 run on the host; 6–10 run **inside the chroot** (script 5 prints the
@@ -65,21 +71,30 @@ finished packages are skipped via stamp files in `$LFS/var/lib/aurora-build/`.
 - `06-base-system.sh` implements the ~80 base packages as a recipe table:
   the fiddly ones (glibc, gcc, binutils, perl, python…) have explicit recipes;
   standard autotools packages go through a generic recipe.
-- Firefox is installed as the official **prebuilt binary** (compiling it from
-  source is a 20+ hour BLFS project). Its GTK3 runtime deps are built in
-  script 10 from `config/extras.list` — this is the pragmatic deviation from
-  "pure" LFS, and the longest part of script 10.
-- The web shell is a concept UI. `aurorad` wires the real parts: clock, battery,
-  brightness, power actions, file listing, app launch. The "Aura" assistant
-  panel keeps canned/heuristic responses — bring your own model later (it was
-  designed so an on-device LLM can be dropped behind `/ask`).
+- The desktop is **native**, not a web page. `shell/aurora-desktop/aurora-shell.c`
+  is compiled in script 13 against GTK3 + `gtk-layer-shell`; `style.css` carries
+  the "daybreak" theme. The GTK3 stack is built from `config/extras.list` — the
+  pragmatic deviation from "pure" LFS, and the longest part of scripts 10/13.
+- **Aura is a real on-device LLM.** Script 13 builds `llama-server` (llama.cpp)
+  and bundles a quantized **Qwen2.5-3B-Instruct** GGUF. `aurorad` exposes `/ask`,
+  which runs deterministic fast-paths for common commands (open terminal, open
+  app, status, brightness, power) and defers open-ended chat to the model. It's
+  a small model on CPU, so answers are useful but not cloud-grade; swap the GGUF
+  in `/opt/aura/models` for a larger one if you have the RAM.
+- `llama-server`'s shared libs are installed to `/usr/lib` (its build tree under
+  `/sources` is excluded from the squashfs), and the launcher auto-selects the
+  largest bundled model.
 
 ## After first boot
 
-Login is automatic: `aurora-shell.service` starts `cage` + Firefox in kiosk
-mode as the unprivileged `aurora` user; `aurorad.service` provides the system
-bridge on 127.0.0.1:7212. TTY2 (Ctrl-Alt-F2) gives you a normal shell —
-user `aneek`, password set during script 7.
+Login is automatic on tty1 as the unprivileged `aurora` user, which starts
+`labwc`; its autostart launches `aura-llm-launch` (the Aura LLM server),
+`aurorad` (system bridge on 127.0.0.1:7212), and `aurora-shell` (the desktop).
+Click **◆ Aura** in the top bar to chat with the assistant or give it commands;
+the first reply after boot waits a few seconds for the model to load. Open a
+terminal from the dock or with **Super+Return** (`foot`); close windows with the
+titlebar **×**, **Alt+F4**, or **Super+Q**. TTY2 (Ctrl-Alt-F2) gives you a
+normal shell — user `aneek`, password set during script 7.
 
 ## Installing & running applications
 
