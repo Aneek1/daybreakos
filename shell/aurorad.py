@@ -589,6 +589,70 @@ def install_progress():
     with INSTALL_LOCK:
         return dict(INSTALL)
 
+# ----- Aura model download (post-install) -------------------------------
+# The ISO ships without the LLM model to stay small. Once installed and online,
+# Aura downloads a ~0.8 GB model on demand; aura-llm-launch then serves it.
+AURA_MODEL_DIR = "/opt/aura/models"
+AURA_MODEL_URL = os.environ.get("AURA_MODEL_URL",
+    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/"
+    "resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+AURA = {"running": False, "pct": 0, "done": False, "error": ""}
+AURA_LOCK = threading.Lock()
+
+def aura_model_present():
+    try:
+        return any(f.endswith(".gguf") for f in os.listdir(AURA_MODEL_DIR))
+    except OSError:
+        return False
+
+def _aura_download():
+    dest = os.path.join(AURA_MODEL_DIR, "Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+    tmp = dest + ".part"
+    try:
+        os.makedirs(AURA_MODEL_DIR, exist_ok=True)
+        req = urllib.request.Request(AURA_MODEL_URL, headers={"User-Agent": "AuroraOS"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            total = int(r.headers.get("Content-Length", 0))
+            got = 0
+            with open(tmp, "wb") as f:
+                while True:
+                    chunk = r.read(1 << 20)
+                    if not chunk:
+                        break
+                    f.write(chunk); got += len(chunk)
+                    if total:
+                        with AURA_LOCK:
+                            AURA["pct"] = int(got * 100 / total)
+        os.replace(tmp, dest)
+        subprocess.Popen(["/bin/sh", "/usr/lib/aurora/aura-llm-launch"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with AURA_LOCK:
+            AURA.update(done=True, pct=100)
+    except Exception as e:
+        try: os.remove(tmp)
+        except OSError: pass
+        with AURA_LOCK:
+            AURA["error"] = str(e)
+    finally:
+        with AURA_LOCK:
+            AURA["running"] = False
+
+def aura_setup_start():
+    if aura_model_present():
+        return {"ok": True, "already": True, "message": "Aura is already set up."}
+    with AURA_LOCK:
+        if AURA["running"]:
+            return {"error": "Download already in progress."}
+        AURA.update(running=True, pct=0, done=False, error="")
+    threading.Thread(target=_aura_download, daemon=True).start()
+    return {"ok": True}
+
+def aura_status():
+    with AURA_LOCK:
+        s = dict(AURA)
+    s["installed"] = aura_model_present()
+    return s
+
 class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         # ensure_ascii=False so unicode (em-dashes, accents, emoji) goes out as
@@ -637,6 +701,8 @@ class H(BaseHTTPRequestHandler):
                                           for d in disks)})
         elif url.path == "/system/install-progress":
             self._send(install_progress())
+        elif url.path == "/system/aura-status":
+            self._send(aura_status())
         else:
             self._send({"error": "not found"}, 404)
 
@@ -650,6 +716,8 @@ class H(BaseHTTPRequestHandler):
             self._send(persist_setup())
         elif self.path == "/system/install":
             self._send(install_start(data.get("disk", "")))
+        elif self.path == "/system/aura-setup":
+            self._send(aura_setup_start())
         elif self.path == "/store/remove":
             self._send(store_remove(data.get("id", "")))
         elif self.path == "/brightness":

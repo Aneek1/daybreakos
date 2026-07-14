@@ -18,9 +18,29 @@ chroot "$LFS" /usr/bin/env -i PATH=/usr/bin:/bin /bin/bash -c \
    wayland-scanner private-code   /tmp/ftl.xml /tmp/wlr-foreign-toplevel-management-unstable-v1-protocol.c && \
    cc /tmp/aurora-shell.c /tmp/wlr-foreign-toplevel-management-unstable-v1-protocol.c -I/tmp -O2 -o /usr/bin/aurora-shell $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0 wayland-client) -lm && echo "shell: $(stat -c %s /usr/bin/aurora-shell) bytes"'
 
-echo "== re-squash =="
+echo "== labwc autostart: installer-first on live, desktop on installed disk =="
+install -d /mnt/lfs/etc/xdg/labwc
+cat > /mnt/lfs/etc/xdg/labwc/autostart <<'EOF'
+# AuroraOS session autostart (labwc)
+/usr/lib/aurora/aura-llm-launch &
+/usr/bin/python3 /usr/lib/aurora/aurorad &
+# Live ISO (root is an overlay) boots the installer-first screen; an installed
+# disk (ext4 root) boots straight to the desktop.
+if [ "$(findmnt -no FSTYPE / 2>/dev/null)" = overlay ]; then
+  /usr/bin/aurora-shell --installer &
+else
+  /usr/bin/aurora-shell &
+fi
+EOF
+
+echo "== re-squash (excluding the LLM model + build toolchain to slim the ISO) =="
+# The model is downloaded post-install (Aura setup); the compiler/build tools
+# aren't needed at runtime. Excluded from the squashfs, NOT deleted from $LFS,
+# so the shell can still be rebuilt here.
 mksquashfs "$LFS" "$ISO/live/rootfs.squashfs" -comp zstd -noappend \
-  -e boot/efi -e sources -e proc -e sys -e dev -e run -e tmp -e aurora
+  -e boot/efi -e sources -e proc -e sys -e dev -e run -e tmp -e aurora \
+  -e opt/aura/models -e usr/libexec/gcc -e usr/bin/lto-dump -e opt/cmake \
+  -e usr/include
 
 echo "== grub-mkimage + ESP + xorriso =="
 cat > "$STAGE/embed.cfg" <<'EOF'

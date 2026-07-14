@@ -1800,6 +1800,178 @@ static void am_install(GtkMenuItem *i, gpointer u) {
     gtk_label_set_text(GTK_LABEL(g_inst_status), "Select a disk to continue.");
     gtk_widget_show_all(g_inst);
 }
+
+/* Installer-first screen: shown instead of the desktop when booted from the
+ * live ISO. "Try AuroraOS" launches the real desktop; "Erase & Install" runs
+ * the same install flow as the menu item. On an installed disk the shell boots
+ * straight to the desktop (the session picks the mode from the root fs type). */
+static void inst_try(GtkButton *b, gpointer u) {
+    launch("/usr/bin/aurora-shell");   /* spawn the full desktop, then step aside */
+    gtk_main_quit();
+}
+static void build_installer_first(void) {
+    GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, TRUE, TRUE, TRUE, -1);
+    gtk_widget_set_name(w, "instfull");
+    gtk_layer_set_keyboard_mode(GTK_WINDOW(w), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
+
+    GtkWidget *center = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_halign(center, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(center, GTK_ALIGN_CENTER);
+
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_name(card, "instcard");
+    gtk_widget_set_size_request(card, 540, -1);
+    gtk_widget_set_margin_top(card, 34);  gtk_widget_set_margin_bottom(card, 30);
+    gtk_widget_set_margin_start(card, 42); gtk_widget_set_margin_end(card, 42);
+
+    GtkWidget *logo = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(logo),
+        "<span foreground='#34e0c8' size='xx-large'>◗</span>");
+    gtk_widget_set_halign(logo, GTK_ALIGN_START);
+    GtkWidget *title = gtk_label_new("Welcome to AuroraOS");
+    gtk_style_context_add_class(gtk_widget_get_style_context(title), "abt-name");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    GtkWidget *sub = gtk_label_new("Install AuroraOS onto this computer, or try it "
+        "first without changing anything on your disk.");
+    gtk_label_set_line_wrap(GTK_LABEL(sub), TRUE);
+    gtk_style_context_add_class(gtk_widget_get_style_context(sub), "abt-desc");
+    gtk_widget_set_halign(sub, GTK_ALIGN_START);
+
+    GtkWidget *pick = gtk_label_new("Install onto:");
+    gtk_widget_set_halign(pick, GTK_ALIGN_START); gtk_widget_set_margin_top(pick, 8);
+    g_inst_disks = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    g_inst_gate = gtk_check_button_new_with_label(
+        "I understand this erases the entire selected disk.");
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_gate), "inst-warn");
+    g_signal_connect(g_inst_gate, "toggled", G_CALLBACK(inst_gate_toggled), NULL);
+    g_inst_bar = gtk_progress_bar_new();
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_inst_bar), 0);
+    g_inst_status = gtk_label_new("Select a disk to install, or choose Try AuroraOS.");
+    gtk_widget_set_halign(g_inst_status, GTK_ALIGN_START);
+    gtk_label_set_line_wrap(GTK_LABEL(g_inst_status), TRUE);
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_status), "abt-ver");
+
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_halign(row, GTK_ALIGN_END); gtk_widget_set_margin_top(row, 6);
+    GtkWidget *tryb = gtk_button_new_with_label("Try AuroraOS");
+    g_signal_connect(tryb, "clicked", G_CALLBACK(inst_try), NULL);
+    g_inst_go = gtk_button_new_with_label("Erase & Install");
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_go), "inst-go");
+    gtk_widget_set_sensitive(g_inst_go, FALSE);
+    g_signal_connect(g_inst_go, "clicked", G_CALLBACK(inst_go), NULL);
+    gtk_box_pack_start(GTK_BOX(row), tryb, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), g_inst_go, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(card), logo,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), title, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), sub,   FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), pick,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), g_inst_disks,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), g_inst_gate,   FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), g_inst_bar,    FALSE, FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(card), g_inst_status, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), row,   FALSE, FALSE, 4);
+    gtk_container_add(GTK_CONTAINER(center), card);
+    gtk_container_add(GTK_CONTAINER(w), center);
+    inst_refresh_disks();
+    gtk_widget_show_all(w);
+}
+/* ---------- Set up Aura (one-time model download after install) ---------- */
+static GtkWidget *g_aura_win = NULL, *g_aura_bar = NULL, *g_aura_st = NULL, *g_aura_go = NULL;
+static guint g_aura_timer = 0;
+static gboolean aura_poll(gpointer u) {
+    char *r = aurorad_send("GET", "/system/aura-status", NULL);
+    if (!r) return G_SOURCE_CONTINUE;
+    int pct = json_int(r, "pct");
+    char *err = json_str(r, "error");
+    gboolean done = json_true(r, "done");
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_aura_bar), pct / 100.0);
+    if (err && *err) {
+        char *m = g_strdup_printf("Download failed: %s", err);
+        gtk_label_set_text(GTK_LABEL(g_aura_st), m); g_free(m);
+        gtk_widget_set_sensitive(g_aura_go, TRUE);
+        g_free(err); g_free(r); g_aura_timer = 0; return G_SOURCE_REMOVE;
+    }
+    if (done) {
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_aura_bar), 1.0);
+        gtk_label_set_text(GTK_LABEL(g_aura_st), "Aura is ready. Open Aura and ask away.");
+        g_free(err); g_free(r); g_aura_timer = 0; return G_SOURCE_REMOVE;
+    }
+    char *m = g_strdup_printf("Downloading Aura's model…  %d%%", pct);
+    gtk_label_set_text(GTK_LABEL(g_aura_st), m); g_free(m);
+    g_free(err); g_free(r);
+    return G_SOURCE_CONTINUE;
+}
+static void aura_go(GtkButton *b, gpointer u) {
+    char *r = aurorad_send("POST", "/system/aura-setup", "{}");
+    char *err = json_str(r, "error");
+    char *msg = json_str(r, "message");
+    if (err && *err) {
+        gtk_label_set_text(GTK_LABEL(g_aura_st), err);
+        g_free(err); g_free(msg); g_free(r); return;
+    }
+    if (msg && *msg) {   /* already set up */
+        gtk_label_set_text(GTK_LABEL(g_aura_st), msg);
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_aura_bar), 1.0);
+        g_free(err); g_free(msg); g_free(r); return;
+    }
+    g_free(err); g_free(msg); g_free(r);
+    gtk_widget_set_sensitive(g_aura_go, FALSE);
+    gtk_label_set_text(GTK_LABEL(g_aura_st), "Starting download…");
+    if (!g_aura_timer) g_aura_timer = g_timeout_add(1000, aura_poll, NULL);
+}
+static void am_aura_setup(GtkMenuItem *i, gpointer u) {
+    if (!g_aura_win) {
+        g_aura_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        gtk_widget_set_name(g_aura_win, "instwin");
+        gtk_window_set_title(GTK_WINDOW(g_aura_win), "Set up Aura");
+        gtk_window_set_default_size(GTK_WINDOW(g_aura_win), 430, 220);
+        gtk_window_set_resizable(GTK_WINDOW(g_aura_win), FALSE);
+        g_signal_connect(g_aura_win, "delete-event",
+                         G_CALLBACK(gtk_widget_hide_on_delete), NULL);
+        GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+        gtk_widget_set_margin_top(v, 22); gtk_widget_set_margin_bottom(v, 20);
+        gtk_widget_set_margin_start(v, 26); gtk_widget_set_margin_end(v, 26);
+        GtkWidget *t = gtk_label_new("Set up Aura");
+        gtk_style_context_add_class(gtk_widget_get_style_context(t), "abt-name");
+        gtk_widget_set_halign(t, GTK_ALIGN_START);
+        GtkWidget *s = gtk_label_new("Download Aura's on-device AI model (~0.8 GB, "
+            "one time). Everything runs locally after this — no cloud.");
+        gtk_label_set_line_wrap(GTK_LABEL(s), TRUE);
+        gtk_style_context_add_class(gtk_widget_get_style_context(s), "abt-desc");
+        gtk_widget_set_halign(s, GTK_ALIGN_START);
+        g_aura_bar = gtk_progress_bar_new();
+        g_aura_st = gtk_label_new("Ready to download.");
+        gtk_widget_set_halign(g_aura_st, GTK_ALIGN_START);
+        gtk_label_set_line_wrap(GTK_LABEL(g_aura_st), TRUE);
+        gtk_style_context_add_class(gtk_widget_get_style_context(g_aura_st), "abt-ver");
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        gtk_widget_set_halign(row, GTK_ALIGN_END);
+        GtkWidget *close = gtk_button_new_with_label("Close");
+        g_signal_connect_swapped(close, "clicked",
+                                 G_CALLBACK(gtk_widget_hide), g_aura_win);
+        g_aura_go = gtk_button_new_with_label("Download");
+        gtk_style_context_add_class(gtk_widget_get_style_context(g_aura_go), "inst-go");
+        g_signal_connect(g_aura_go, "clicked", G_CALLBACK(aura_go), NULL);
+        gtk_box_pack_start(GTK_BOX(row), close, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(row), g_aura_go, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(v), t, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(v), s, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(v), g_aura_bar, FALSE, FALSE, 6);
+        gtk_box_pack_start(GTK_BOX(v), g_aura_st, FALSE, FALSE, 0);
+        gtk_box_pack_end(GTK_BOX(v), row, FALSE, FALSE, 4);
+        gtk_container_add(GTK_CONTAINER(g_aura_win), v);
+    }
+    /* reflect current state */
+    char *r = aurorad_send("GET", "/system/aura-status", NULL);
+    if (json_true(r, "installed")) {
+        gtk_label_set_text(GTK_LABEL(g_aura_st), "Aura is already set up.");
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_aura_bar), 1.0);
+        gtk_widget_set_sensitive(g_aura_go, FALSE);
+    }
+    g_free(r);
+    gtk_widget_show_all(g_aura_win);
+}
 static void am_lock(GtkMenuItem *i, gpointer u)     { show_lock(); }
 static void am_restart(GtkMenuItem *i, gpointer u)  { aurora_toast("↻", "Restarting…"); launch("systemctl reboot"); }
 static void am_shutdown(GtkMenuItem *i, gpointer u) { aurora_toast("⏻", "Shutting down…"); launch("systemctl poweroff"); }
@@ -1813,6 +1985,7 @@ static void build_aurora_menu(void) {
     struct { const char *label; GCallback cb; } it[] = {
         {"◗    About AuroraOS",         G_CALLBACK(am_about)},
         {"⬇    Install AuroraOS…",       G_CALLBACK(am_install)},
+        {"◈    Set up Aura (AI)",       G_CALLBACK(am_aura_setup)},
         {"▤    Enable Persistent Storage", G_CALLBACK(am_persist)},
         {"◔    Lock",                   G_CALLBACK(am_lock)},
         {"↻    Restart",                G_CALLBACK(am_restart)},
@@ -1870,6 +2043,17 @@ int main(int argc, char **argv) {
     }
     gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
         GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    gboolean installer_mode = (g_getenv("AURORA_INSTALLER") != NULL);
+    for (int i = 1; i < argc; i++)
+        if (!g_strcmp0(argv[i], "--installer")) installer_mode = TRUE;
+    if (installer_mode) {
+        /* Live ISO: show only the installer-first screen (no desktop). */
+        build_wallpaper();          /* aurora gradient behind the card */
+        build_installer_first();
+        gtk_main();
+        return 0;
+    }
 
     scan_apps();
     build_wallpaper();

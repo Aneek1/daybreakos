@@ -282,3 +282,22 @@ menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.
 }
 .inst-go:disabled { background-image: none;
   background-color: rgba(255,255,255,0.10); color: rgba(255,255,255,0.35); }
+
+/* ---- installer-first (live ISO welcome) ---- */
+#instfull {
+  background-color: #0a0e1a;
+  background-image:
+    radial-gradient(farthest-side at 50% 0%, rgba(139,124,246,0.30), transparent),
+    radial-gradient(farthest-side at 18% 100%, rgba(244,169,136,0.20), transparent),
+    linear-gradient(to bottom, #0a0e1a 0%, #0e1424 46%, #15122a 100%);
+}
+#instcard {
+  background-color: rgba(13,16,28,0.92);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
+  box-shadow: 0 30px 90px -20px rgba(0,0,0,0.8);
+}
+#instcard radiobutton { color: #eef1f8; font-size: 13px; padding: 4px 2px; }
+#instcard progressbar trough { min-height: 12px; border-radius: 7px;
+  background-color: rgba(255,255,255,0.08); }
+#instcard progressbar progress { min-height: 12px; border-radius: 7px;
+  background-image: linear-gradient(to right, #34e0c8, #8b7cf6); }
