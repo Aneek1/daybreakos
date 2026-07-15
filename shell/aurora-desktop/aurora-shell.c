@@ -2056,6 +2056,7 @@ static void build_installer_first(void) {
     gtk_widget_show_all(w);
 }
 /* ---------- Set up Aura (one-time model download after install) ---------- */
+static void aura_menu_refresh(void);
 static GtkWidget *g_aura_win = NULL, *g_aura_bar = NULL, *g_aura_st = NULL, *g_aura_go = NULL;
 static guint g_aura_timer = 0;
 static gboolean aura_poll(gpointer u) {
@@ -2074,6 +2075,7 @@ static gboolean aura_poll(gpointer u) {
     if (done) {
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_aura_bar), 1.0);
         gtk_label_set_text(GTK_LABEL(g_aura_st), "Aura is ready. Open Aura and ask away.");
+        aura_menu_refresh();   /* flip the Aurora-menu item to "ready" */
         g_free(err); g_free(r); g_aura_timer = 0; return G_SOURCE_REMOVE;
     }
     char *m = g_strdup_printf("Downloading Aura's model…  %d%%", pct);
@@ -2151,31 +2153,47 @@ static void am_aura_setup(GtkMenuItem *i, gpointer u) {
     g_free(r);
     gtk_widget_show_all(g_aura_win);
 }
+/* The menu reflects reality: the Aura item shows ready-vs-setup, and the
+ * live-media items (Install / Persistent Storage) only exist on live boots. */
+static GtkWidget *g_mi_aura = NULL;
+static gboolean g_live_media = FALSE;
+static void aura_menu_refresh(void) {
+    if (!g_mi_aura) return;
+    char *r = aurorad_send("GET", "/system/aura-status", NULL);
+    gboolean ready = r && json_true(r, "installed");
+    gtk_menu_item_set_label(GTK_MENU_ITEM(g_mi_aura),
+        ready ? "◈    Aura (AI) — ready" : "◈    Set up Aura (AI)…");
+    g_free(r);
+}
 static void am_lock(GtkMenuItem *i, gpointer u)     { show_lock(); }
 static void am_restart(GtkMenuItem *i, gpointer u)  { aurora_toast("↻", "Restarting…"); power_action("reboot"); }
 static void am_shutdown(GtkMenuItem *i, gpointer u) { aurora_toast("⏻", "Shutting down…"); power_action("poweroff"); }
 static void on_logo_clicked(GtkButton *b, gpointer u) {
+    aura_menu_refresh();   /* label reflects whether the model is installed */
     if (g_auroramenu)
         gtk_menu_popup_at_widget(GTK_MENU(g_auroramenu), GTK_WIDGET(b),
             GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
 }
 static void build_aurora_menu(void) {
     g_auroramenu = gtk_menu_new();
-    struct { const char *label; GCallback cb; } it[] = {
-        {"◗    About AuroraOS",         G_CALLBACK(am_about)},
-        {"⬇    Install AuroraOS…",       G_CALLBACK(am_install)},
-        {"◈    Set up Aura (AI)",       G_CALLBACK(am_aura_setup)},
-        {"▤    Enable Persistent Storage", G_CALLBACK(am_persist)},
-        {"◔    Lock",                   G_CALLBACK(am_lock)},
-        {"↻    Restart",                G_CALLBACK(am_restart)},
-        {"⏻    Shut Down",              G_CALLBACK(am_shutdown)},
+    struct { const char *label; GCallback cb; gboolean live_only; gboolean aura; } it[] = {
+        {"◗    About AuroraOS",         G_CALLBACK(am_about),      FALSE, FALSE},
+        {"⬇    Install AuroraOS…",       G_CALLBACK(am_install),    TRUE,  FALSE},
+        {"◈    Set up Aura (AI)…",      G_CALLBACK(am_aura_setup), FALSE, TRUE},
+        {"▤    Enable Persistent Storage", G_CALLBACK(am_persist), TRUE,  FALSE},
+        {"◔    Lock",                   G_CALLBACK(am_lock),       FALSE, FALSE},
+        {"↻    Restart",                G_CALLBACK(am_restart),    FALSE, FALSE},
+        {"⏻    Shut Down",              G_CALLBACK(am_shutdown),   FALSE, FALSE},
     };
     for (int i = 0; i < (int)(sizeof(it)/sizeof(it[0])); i++) {
+        if (it[i].live_only && !g_live_media) continue;   /* installed disk: hide */
         GtkWidget *mi = gtk_menu_item_new_with_label(it[i].label);
         g_signal_connect(mi, "activate", it[i].cb, NULL);
         gtk_menu_shell_append(GTK_MENU_SHELL(g_auroramenu), mi);
+        if (it[i].aura) g_mi_aura = mi;
     }
     gtk_widget_show_all(g_auroramenu);
+    aura_menu_refresh();
 }
 
 static GtkWidget *g_ctxmenu = NULL;
@@ -2236,6 +2254,7 @@ int main(int argc, char **argv) {
         if (rst.f_type == OVERLAY || rst.f_type == TMPFS || rst.f_type == RAMFS)
             installer_mode = TRUE;
     }
+    g_live_media = installer_mode;   /* actual media type, before UI-mode overrides */
     if (g_getenv("AURORA_INSTALLER")) installer_mode = TRUE;   /* force on */
     if (g_getenv("AURORA_DESKTOP"))   installer_mode = FALSE;  /* force off */
     for (int i = 1; i < argc; i++) {
