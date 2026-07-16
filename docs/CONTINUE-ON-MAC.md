@@ -1,4 +1,4 @@
-# Continue AuroraOS aarch64 build on the M4 Mac
+# Continue DaybreakOS aarch64 build on the M4 Mac
 
 **Status as of 2026-07-10:** scripts **00 → 04 are validated end-to-end on real
 aarch64** (in a QEMU-emulated Debian arm64 container on the Windows PC). The
@@ -31,8 +31,8 @@ Full detail in `docs/build-host-utm.md`. Short version:
      squashfs-tools xorriso mtools grub-efi-arm64-bin dosfstools parted \
      qemu-system-arm qemu-efi-aarch64 busybox-static sudo
    ln -sf bash /bin/sh
-   git clone https://github.com/Aneek1/auroraos.git /root/auroraos
-   cd /root/auroraos
+   git clone https://github.com/Aneek1/daybreakos.git /root/daybreakos
+   cd /root/daybreakos
    ```
 
    Then point `LFS_DISK` at the scratch disk before running script 01:

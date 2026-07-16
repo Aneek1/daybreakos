@@ -1,7 +1,7 @@
 #!/bin/bash
-# AuroraOS 07 — system configuration + branding. Run INSIDE the chroot.
+# DaybreakOS 07 — system configuration + branding. Run INSIDE the chroot.
 set -e
-. /aurora/config/build.conf 2>/dev/null || { DISTRO_NAME=AuroraOS; DISTRO_VERSION=1.0; DISTRO_CODENAME=daybreak; DISTRO_USER=aneek; }
+. /aurora/config/build.conf 2>/dev/null || { DISTRO_NAME=DaybreakOS; DISTRO_VERSION=1.0; DISTRO_CODENAME=aurora; DISTRO_USER=aneek; }
 # build.conf's STAMPS is $LFS-prefixed (host side); inside the chroot the stamp
 # dir is an absolute /var path. Pin it here so it survives the source above.
 STAMPS=/var/lib/aurora-build
@@ -12,13 +12,13 @@ ESPDEV=$(grep ESP /.aurora-disk 2>/dev/null | cut -d= -f2)
 
 # fstab
 cat > /etc/fstab <<EOF
-# AuroraOS fstab
+# DaybreakOS fstab
 ${ROOTDEV:-/dev/sda2}  /          ext4  defaults            1 1
 ${ESPDEV:-/dev/sda1}   /boot/efi  vfat  umask=0077          0 1
 EOF
 
 # hostname + network (systemd-networkd, DHCP on everything)
-echo aurora > /etc/hostname
+echo daybreak > /etc/hostname
 mkdir -p /etc/systemd/network
 cat > /etc/systemd/network/10-dhcp.network <<"EOF"
 [Match]

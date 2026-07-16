@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 12 — external applications: labwc compositor + foot terminal +
+# DaybreakOS 12 — external applications: labwc compositor + foot terminal +
 # AppImage (fuse3) + Nix first-boot helper + real launcher session.
 # Run INSIDE the chroot, AFTER 10-aurora-shell.sh. See
 # docs/superpowers/specs/2026-07-10-external-apps-design.md

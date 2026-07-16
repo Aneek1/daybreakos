@@ -1,5 +1,5 @@
 /*
- * aurora-shell — AuroraOS's own native desktop shell.
+ * aurora-shell — DaybreakOS's own native desktop shell.
  *
  * A GTK3 + gtk-layer-shell program that draws the entire visible desktop as
  * Wayland layer-shell surfaces over a wlroots compositor (labwc):
@@ -38,7 +38,7 @@ static GtkWidget *g_aura = NULL;         /* aura window (toggle) */
 static GtkWidget *g_aura_log = NULL;     /* aura message list box */
 static GtkWidget *g_clock = NULL;
 
-/* ----- Aurora Store model ----- */
+/* ----- Daybreak Store model ----- */
 typedef struct { char *id, *name, *category, *icon, *desc; gboolean installed; } StoreApp;
 static GList *g_catalog = NULL;          /* StoreApp* */
 static GtkWidget *g_store = NULL;        /* store window (toggle) */
@@ -83,7 +83,7 @@ static GtkWidget *g_splash = NULL;       /* boot splash overlay (auto-dismisses)
 static void on_cc_btn(GtkButton *b, gpointer u);   /* forward: top bar opens control center */
 static void on_widgets_btn(GtkButton *b, gpointer u);
 static void on_noti_btn(GtkButton *b, gpointer u);
-static void on_logo_clicked(GtkButton *b, gpointer u); /* logo opens the Aurora menu */
+static void on_logo_clicked(GtkButton *b, gpointer u); /* logo opens the Daybreak menu */
 static void aurora_toast(const char *glyph, const char *text);
 
 /* Fixed fallback height for full-cover surfaces (wallpaper, Aura slide-over).
@@ -505,13 +505,13 @@ static void build_topbar(void) {
     GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_margin_start(hb, 12); gtk_widget_set_margin_end(hb, 12);
 
-    /* logo is a button that opens the Aurora menu (About / Lock / power) */
+    /* logo is a button that opens the Daybreak menu (About / Lock / power) */
     GtkWidget *logo = gtk_button_new();
     gtk_style_context_add_class(gtk_widget_get_style_context(logo), "logobtn");
     gtk_widget_set_focus_on_click(logo, FALSE);
     GtkWidget *logolbl = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(logolbl),
-        "<span foreground='#34e0c8' size='x-large'>◗</span>  <b>Aurora</b>");
+        "<span foreground='#34e0c8' size='x-large'>◗</span>  <b>Daybreak</b>");
     gtk_widget_set_name(logolbl, "logo");
     gtk_container_add(GTK_CONTAINER(logo), logolbl);
     g_signal_connect(logo, "clicked", G_CALLBACK(on_logo_clicked), NULL);
@@ -814,9 +814,9 @@ static void build_splash(void) {
     GtkWidget *logo = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(logo),
         "<span foreground='#34e0c8' size='100000'>◗</span>");
-    GtkWidget *name = gtk_label_new("AuroraOS");
+    GtkWidget *name = gtk_label_new("DaybreakOS");
     gtk_widget_set_name(name, "splash-name");
-    GtkWidget *sub = gtk_label_new("daybreak");
+    GtkWidget *sub = gtk_label_new("aurora");
     gtk_widget_set_name(sub, "splash-sub");
     gtk_box_pack_start(GTK_BOX(v), logo, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(v), name, FALSE, FALSE, 0);
@@ -868,7 +868,7 @@ static void build_wallpaper(void) {
     gtk_style_context_add_class(gtk_widget_get_style_context(wp), "wallpaper");
     gtk_widget_set_size_request(wp, -1, AURORA_COVER_H);
     gtk_widget_add_events(wp, GDK_BUTTON_PRESS_MASK);
-    GtkWidget *brand = gtk_label_new("AuroraOS");
+    GtkWidget *brand = gtk_label_new("DaybreakOS");
     gtk_style_context_add_class(gtk_widget_get_style_context(brand), "wp-brand");
     gtk_widget_set_halign(brand, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(brand, GTK_ALIGN_CENTER);
@@ -1050,7 +1050,7 @@ static void build_aura(void) {
                  "change settings, or anything else.", FALSE);
 }
 
-/* ================= Aurora Store =================
+/* ================= Daybreak Store =================
  * A native software centre: reads the same pipe-delimited catalog aurorad uses,
  * shows a card per app with a Get/Open button, and installs via POST
  * /store/install (aurorad downloads the AppImage and unpacks it under
@@ -1191,7 +1191,7 @@ static void build_store(void) {
 
     GtkWidget *title = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(title),
-        "<b>Aurora Store</b>  ·  <span size='small'>on-device app catalog</span>");
+        "<b>Daybreak Store</b>  ·  <span size='small'>on-device app catalog</span>");
     gtk_style_context_add_class(gtk_widget_get_style_context(title), "title");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     gtk_box_pack_start(GTK_BOX(v), title, FALSE, FALSE, 0);
@@ -1464,7 +1464,7 @@ static void build_notifications(void) {
     gtk_box_pack_start(GTK_BOX(v), h, FALSE, FALSE, 0);
 
     g_noti_list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    noti_add("Aurora Store", "#34e0c8", "Calculator installed", "GNOME Calculator is ready in Apps and the dock.");
+    noti_add("Daybreak Store", "#34e0c8", "Calculator installed", "GNOME Calculator is ready in Apps and the dock.");
     noti_add("Aura", "#8b7cf6", "Good morning", "3 updates available and battery is healthy. Ask me for the rundown.");
     gtk_box_pack_start(GTK_BOX(v), g_noti_list, FALSE, FALSE, 0);
 
@@ -1682,13 +1682,13 @@ static void build_aurora_band(void) {
 }
 
 /* ---------- desktop context menu (right-click wallpaper) ---------- */
-/* ---- Aurora menu (top-bar logo): About + session power ---- */
+/* ---- Daybreak menu (top-bar logo): About + session power ---- */
 static void am_about(GtkMenuItem *i, gpointer u) {
     /* Custom About window (GtkAboutDialog renders as an unthemed washed-out
      * light dialog on our dark desktop) — opaque dark card in Aurora identity. */
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_name(w, "aboutwin");
-    gtk_window_set_title(GTK_WINDOW(w), "About AuroraOS");
+    gtk_window_set_title(GTK_WINDOW(w), "About DaybreakOS");
     gtk_window_set_default_size(GTK_WINDOW(w), S(380), S(320));
     gtk_window_set_resizable(GTK_WINDOW(w), FALSE);
 
@@ -1698,7 +1698,7 @@ static void am_about(GtkMenuItem *i, gpointer u) {
 
     GtkWidget *mark = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(mark), "<span foreground='#34e0c8' size='xx-large'>◗</span>");
-    GtkWidget *name = gtk_label_new("AuroraOS");
+    GtkWidget *name = gtk_label_new("DaybreakOS");
     gtk_style_context_add_class(gtk_widget_get_style_context(name), "abt-name");
     GtkWidget *ver = gtk_label_new("Version 1.0 — Daybreak");
     gtk_style_context_add_class(gtk_widget_get_style_context(ver), "abt-ver");
@@ -1706,7 +1706,7 @@ static void am_about(GtkMenuItem *i, gpointer u) {
         "Linux From Scratch · labwc/Wayland\nThe Aurora shell · on-device Aura");
     gtk_label_set_justify(GTK_LABEL(desc), GTK_JUSTIFY_CENTER);
     gtk_style_context_add_class(gtk_widget_get_style_context(desc), "abt-desc");
-    GtkWidget *link = gtk_label_new("github.com/Aneek1/auroraos");
+    GtkWidget *link = gtk_label_new("github.com/Aneek1/daybreakos");
     gtk_style_context_add_class(gtk_widget_get_style_context(link), "abt-link");
     GtkWidget *close = gtk_button_new_with_label("Close");
     gtk_style_context_add_class(gtk_widget_get_style_context(close), "abt-close");
@@ -1901,7 +1901,7 @@ static void inst_go(GtkButton *b, gpointer u) {
 static void build_install_win(void) {
     g_inst = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_name(g_inst, "instwin");
-    gtk_window_set_title(GTK_WINDOW(g_inst), "Install AuroraOS");
+    gtk_window_set_title(GTK_WINDOW(g_inst), "Install DaybreakOS");
     gtk_window_set_default_size(GTK_WINDOW(g_inst), S(470), S(420));
     gtk_window_set_resizable(GTK_WINDOW(g_inst), FALSE);
     g_signal_connect(g_inst, "delete-event",
@@ -1911,10 +1911,10 @@ static void build_install_win(void) {
     gtk_widget_set_margin_top(v, 22); gtk_widget_set_margin_bottom(v, 20);
     gtk_widget_set_margin_start(v, 26); gtk_widget_set_margin_end(v, 26);
 
-    GtkWidget *title = gtk_label_new("Install AuroraOS");
+    GtkWidget *title = gtk_label_new("Install DaybreakOS");
     gtk_style_context_add_class(gtk_widget_get_style_context(title), "abt-name");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
-    GtkWidget *sub = gtk_label_new("Copy AuroraOS onto a disk so it boots without the ISO.");
+    GtkWidget *sub = gtk_label_new("Copy DaybreakOS onto a disk so it boots without the ISO.");
     gtk_style_context_add_class(gtk_widget_get_style_context(sub), "abt-desc");
     gtk_widget_set_halign(sub, GTK_ALIGN_START);
 
@@ -1973,7 +1973,7 @@ static void am_install(GtkMenuItem *i, gpointer u) {
 }
 
 /* Installer-first screen: shown instead of the desktop when booted from the
- * live ISO. "Try AuroraOS" launches the real desktop; "Erase & Install" runs
+ * live ISO. "Try DaybreakOS" launches the real desktop; "Erase & Install" runs
  * the same install flow as the menu item. On an installed disk the shell boots
  * straight to the desktop (the session picks the mode from the root fs type). */
 static void inst_try(GtkButton *b, gpointer u) {
@@ -1998,10 +1998,10 @@ static void build_installer_first(void) {
     GtkWidget *logo = gtk_label_new("◗");
     gtk_style_context_add_class(gtk_widget_get_style_context(logo), "inst-logo");
     gtk_widget_set_halign(logo, GTK_ALIGN_START);
-    GtkWidget *title = gtk_label_new("Welcome to AuroraOS");
+    GtkWidget *title = gtk_label_new("Welcome to DaybreakOS");
     gtk_style_context_add_class(gtk_widget_get_style_context(title), "inst-title");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
-    GtkWidget *sub = gtk_label_new("Install AuroraOS onto this computer, or try it "
+    GtkWidget *sub = gtk_label_new("Install DaybreakOS onto this computer, or try it "
         "first without changing anything on your disk.");
     gtk_label_set_line_wrap(GTK_LABEL(sub), TRUE);
     gtk_style_context_add_class(gtk_widget_get_style_context(sub), "abt-desc");
@@ -2023,14 +2023,14 @@ static void build_installer_first(void) {
     g_signal_connect(g_inst_gate, "toggled", G_CALLBACK(inst_gate_toggled), NULL);
     g_inst_bar = gtk_progress_bar_new();
     gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_inst_bar), 0);
-    g_inst_status = gtk_label_new("Select a disk to install, or choose Try AuroraOS.");
+    g_inst_status = gtk_label_new("Select a disk to install, or choose Try DaybreakOS.");
     gtk_widget_set_halign(g_inst_status, GTK_ALIGN_START);
     gtk_label_set_line_wrap(GTK_LABEL(g_inst_status), TRUE);
     gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_status), "abt-ver");
 
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_widget_set_halign(row, GTK_ALIGN_END); gtk_widget_set_margin_top(row, 6);
-    GtkWidget *tryb = gtk_button_new_with_label("Try AuroraOS");
+    GtkWidget *tryb = gtk_button_new_with_label("Try DaybreakOS");
     gtk_widget_set_size_request(tryb, S(150), S(40));
     g_signal_connect(tryb, "clicked", G_CALLBACK(inst_try), NULL);
     g_inst_go = gtk_button_new_with_label("Erase & Install");
@@ -2177,8 +2177,8 @@ static void on_logo_clicked(GtkButton *b, gpointer u) {
 static void build_aurora_menu(void) {
     g_auroramenu = gtk_menu_new();
     struct { const char *label; GCallback cb; gboolean live_only; gboolean aura; } it[] = {
-        {"◗    About AuroraOS",         G_CALLBACK(am_about),      FALSE, FALSE},
-        {"⬇    Install AuroraOS…",       G_CALLBACK(am_install),    TRUE,  FALSE},
+        {"◗    About DaybreakOS",         G_CALLBACK(am_about),      FALSE, FALSE},
+        {"⬇    Install DaybreakOS…",       G_CALLBACK(am_install),    TRUE,  FALSE},
         {"◈    Set up Aura (AI)…",      G_CALLBACK(am_aura_setup), FALSE, TRUE},
         {"▤    Enable Persistent Storage", G_CALLBACK(am_persist), TRUE,  FALSE},
         {"◔    Lock",                   G_CALLBACK(am_lock),       FALSE, FALSE},

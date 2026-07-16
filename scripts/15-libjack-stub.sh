@@ -1,6 +1,6 @@
 #!/bin/bash
-# AuroraOS script 15 — libjack.so.0 stub.
-# AuroraOS ships no JACK audio server, but some prebuilt apps (e.g. Xournal++'s
+# DaybreakOS script 15 — libjack.so.0 stub.
+# DaybreakOS ships no JACK audio server, but some prebuilt apps (e.g. Xournal++'s
 # bundled libportaudio) hard-link libjack.so.0. Provide a stub: every entry
 # point returns 0/NULL, so jack_client_open() reports "no server" and callers
 # fall back to ALSA. Satisfies both load-time NEEDED and call-time symbol bind.
@@ -15,7 +15,7 @@ jack_set_sample_rate_callback jack_set_xrun_callback"
 
 mkdir -p /tmp/jackstub
 {
-  echo '/* AuroraOS libjack.so.0 stub */'
+  echo '/* DaybreakOS libjack.so.0 stub */'
   for s in $SYMS; do echo "void *$s(void){return 0;}"; done
 } > /tmp/jackstub/jackstub.c
 gcc -shared -fPIC -Wl,-soname,libjack.so.0 -o /usr/lib/libjack.so.0.0.0 /tmp/jackstub/jackstub.c

@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 08 — Linux kernel. Run INSIDE the chroot.
+# DaybreakOS 08 — Linux kernel. Run INSIDE the chroot.
 set -e
 . /aurora/config/build.conf
 STAMPS=/var/lib/aurora-build

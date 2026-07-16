@@ -1,5 +1,5 @@
 [Unit]
-Description=AuroraOS system service (root: install-to-disk, persistence, model download)
+Description=DaybreakOS system service (root: install-to-disk, persistence, model download)
 After=local-fs.target
 
 [Service]

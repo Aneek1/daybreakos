@@ -1,5 +1,5 @@
 [Unit]
-Description=AuroraOS shell (cage + Firefox kiosk)
+Description=DaybreakOS shell (cage + Firefox kiosk)
 After=systemd-user-sessions.service seatd.service aurorad.service
 Wants=aurorad.service
 Requires=seatd.service

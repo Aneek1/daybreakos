@@ -1,4 +1,4 @@
-# AuroraOS Native Desktop — Design
+# DaybreakOS Native Desktop — Design
 
 **Goal:** Replace the Firefox-kiosk web shell with a fully custom, native Aurora
 desktop environment — Aurora's own DE, not an off-the-shelf one (no XFCE/GNOME),

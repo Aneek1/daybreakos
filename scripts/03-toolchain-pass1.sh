@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 03 — cross toolchain (LFS 12.3 ch. 5): binutils p1, gcc p1,
+# DaybreakOS 03 — cross toolchain (LFS 12.3 ch. 5): binutils p1, gcc p1,
 # linux headers, glibc, libstdc++. Run as root on the host; builds as user lfs.
 set -e
 . "$(dirname "$0")/../config/build.conf"

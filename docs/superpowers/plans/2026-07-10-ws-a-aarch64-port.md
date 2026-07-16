@@ -1,8 +1,8 @@
-# WS-A: AuroraOS aarch64 Port Implementation Plan
+# WS-A: DaybreakOS aarch64 Port Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the AuroraOS LFS build arch-parametric so the identical scripts produce an aarch64 system that boots (with the full Aurora shell) in a VM on the M4 MacBook Pro, while x86_64 keeps working.
+**Goal:** Make the DaybreakOS LFS build arch-parametric so the identical scripts produce an aarch64 system that boots (with the full Aurora shell) in a VM on the M4 MacBook Pro, while x86_64 keeps working.
 
 **Architecture:** LFS builds natively — the aarch64 build runs inside an aarch64 Debian 12 VM (UTM on the M4). All scripts read `AURORA_ARCH` (defaulting to the build host's `uname -m`) from `config/build.conf`, which derives `LFS_TGT`, the dynamic-loader path, kernel image path, GRUB target, and Firefox platform. Kernel config splits into a common fragment plus per-arch fragments. No cross-compilation from x86 to arm — the build host arch IS the target arch.
 
@@ -113,7 +113,7 @@ git commit -m "feat(arch): parametrize build.conf for x86_64/aarch64"
 - [ ] **Step 1: Rewrite `config/kernel.fragment` (arch-neutral common config)**
 
 ```
-# AuroraOS kernel fragment (COMMON, all arches) — merged over defconfig,
+# DaybreakOS kernel fragment (COMMON, all arches) — merged over defconfig,
 # then config/kernel-$AURORA_ARCH.fragment is merged on top.
 # EFI boot
 CONFIG_EFI=y
@@ -189,7 +189,7 @@ CONFIG_BACKLIGHT_CLASS_DEVICE=y
 - [ ] **Step 2: Create `config/kernel-x86_64.fragment`** (the x86-only lines removed from common)
 
 ```
-# AuroraOS x86_64 fragment — real PC hardware + x86 VMs
+# DaybreakOS x86_64 fragment — real PC hardware + x86 VMs
 CONFIG_FB_EFI=y
 CONFIG_DRM_I915=y
 CONFIG_DRM_AMDGPU=y
@@ -213,7 +213,7 @@ CONFIG_SND_HDA_INTEL=y
 - [ ] **Step 3: Create `config/kernel-aarch64.fragment`**
 
 ```
-# AuroraOS aarch64 fragment — QEMU virt / UTM / Apple Virtualization.
+# DaybreakOS aarch64 fragment — QEMU virt / UTM / Apple Virtualization.
 # arm64 defconfig already enables PL011, virt platform, PCIe host generic;
 # these are belt-and-braces + VM niceties.
 CONFIG_PCI_HOST_GENERIC=y
@@ -229,7 +229,7 @@ CONFIG_HW_RANDOM_VIRTIO=y
 
 ```bash
 #!/bin/bash
-# AuroraOS 08 — Linux kernel. Run INSIDE the chroot.
+# DaybreakOS 08 — Linux kernel. Run INSIDE the chroot.
 set -e
 . /aurora/config/build.conf
 STAMPS=/var/lib/aurora-build
@@ -490,7 +490,7 @@ echo "   scripts/99-smoke-qemu.sh $OUT"
 
 ```bash
 #!/bin/bash
-# AuroraOS 99 — boot the live ISO in QEMU (smoke test). Run on the build host.
+# DaybreakOS 99 — boot the live ISO in QEMU (smoke test). Run on the build host.
 set -e
 . "$(dirname "$0")/../config/build.conf"
 ISO=${1:?usage: 99-smoke-qemu.sh <iso>}
@@ -533,7 +533,7 @@ git commit -m "feat(arch): arch-aware live ISO + QEMU smoke-test script"
 ```markdown
 # aarch64 build host: Debian 12 VM in UTM on the M4 MacBook Pro
 
-LFS builds natively — to produce aarch64 AuroraOS you build *on* aarch64.
+LFS builds natively — to produce aarch64 DaybreakOS you build *on* aarch64.
 The M4 itself is the build machine, via a VM.
 
 ## One-time setup (on macOS)
@@ -557,8 +557,8 @@ The M4 itself is the build machine, via a VM.
      squashfs-tools xorriso mtools grub-efi-arm64-bin dosfstools parted \
      qemu-system-arm qemu-efi-aarch64 busybox-static sudo
    ln -sf bash /bin/sh    # LFS requires /bin/sh -> bash
-   git clone https://github.com/Aneek1/auroraos.git /root/auroraos
-   cd /root/auroraos && bash scripts/00-check-host.sh
+   git clone https://github.com/Aneek1/daybreakos.git /root/daybreakos
+   cd /root/daybreakos && bash scripts/00-check-host.sh
    ```
 
 ## Build
@@ -581,7 +581,7 @@ In the Requirements section, after the build-host bullet, add:
 
 ```markdown
 - **Architectures:** x86_64 and aarch64. The build host's arch is the target
-  arch (`AURORA_ARCH` auto-detects). For aarch64 — including running AuroraOS
+  arch (`AURORA_ARCH` auto-detects). For aarch64 — including running DaybreakOS
   on Apple Silicon in a VM — see `docs/build-host-utm.md`.
 ```
 
@@ -636,7 +636,7 @@ git push origin master
 
 ### Task 11: End-to-end aarch64 build + acceptance (runs on the M4, user-driven)
 
-This task executes on the M4, not this PC. It is the WS-A acceptance test from the spec: **AuroraOS boots in a VM on the M4 with the full Aurora shell.**
+This task executes on the M4, not this PC. It is the WS-A acceptance test from the spec: **DaybreakOS boots in a VM on the M4 with the full Aurora shell.**
 
 - [ ] **Step 1:** Follow `docs/build-host-utm.md` one-time setup (UTM + Debian arm64 VM + packages + clone).
 - [ ] **Step 2:** Run scripts 00→02. Checkpoint: `00` prints `Host OK`; `02` ends with all sources downloaded incl. `firefox-*.tar.xz` (aarch64).

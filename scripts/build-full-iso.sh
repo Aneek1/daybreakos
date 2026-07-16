@@ -4,7 +4,7 @@
 set -e
 LFS=/mnt/lfs
 STAGE="$LFS/tmp/isobuild"; ISO="$STAGE/iso"
-OUT=/aurora/auroraos-1.0-desktop-full.iso
+OUT=/aurora/daybreakos-1.0-desktop-full.iso
 CENV="/usr/bin/env -i PATH=/tmp/isotools/bin:/usr/bin:/bin LD_LIBRARY_PATH=/tmp/isotools/lib MTOOLS_SKIP_CHECK=1"
 
 echo "START $(date)"
@@ -25,7 +25,7 @@ echo "== labwc autostart =="
 rm -f /mnt/lfs/usr/bin/aurora-shell-select /mnt/lfs/etc/aurora-installed
 install -d /mnt/lfs/etc/xdg/labwc
 cat > /mnt/lfs/etc/xdg/labwc/autostart <<'EOF'
-# AuroraOS session autostart (labwc)
+# DaybreakOS session autostart (labwc)
 /usr/lib/aurora/aura-llm-launch &
 /usr/bin/python3 /usr/lib/aurora/aurorad &
 /usr/bin/aurora-shell &
@@ -54,6 +54,6 @@ chroot "$LFS" $CENV mformat -i /tmp/isobuild/efi.img ::
 chroot "$LFS" $CENV mmd -i /tmp/isobuild/efi.img ::/EFI ::/EFI/BOOT
 chroot "$LFS" $CENV mcopy -i /tmp/isobuild/efi.img /tmp/isobuild/bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
 cp "$STAGE/efi.img" "$ISO/boot/efi.img"; mkdir -p "$ISO/EFI/BOOT"; cp "$STAGE/bootx64.efi" "$ISO/EFI/BOOT/BOOTX64.EFI"
-chroot "$LFS" $CENV xorriso -as mkisofs -o /tmp/isobuild/out.iso -V AURORAOS -e boot/efi.img -no-emul-boot /tmp/isobuild/iso
+chroot "$LFS" $CENV xorriso -as mkisofs -o /tmp/isobuild/out.iso -V DAYBREAKOS -e boot/efi.img -no-emul-boot /tmp/isobuild/iso
 cp "$STAGE/out.iso" "$OUT"
 echo "END rc=$? $(date)"; ls -la "$OUT"

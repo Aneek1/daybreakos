@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 10 — the desktop: Wayland kiosk stack + Firefox + web shell + aurorad.
+# DaybreakOS 10 — the desktop: Wayland kiosk stack + Firefox + web shell + aurorad.
 # Run INSIDE the chroot. This is the "BLFS express" phase — recipes are generic
 # meson/autotools; on failure consult BLFS for the specific package.
 set -e
@@ -107,7 +107,7 @@ fi
 install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
 install -Dm644 /aurora/shell/aura_llm.py /usr/lib/aurora/aura_llm.py
 
-# ---------- 4) AuroraOS shell + aurorad ----------
+# ---------- 4) DaybreakOS shell + aurorad ----------
 install -d /usr/share/aurora/shell /usr/lib/aurora
 install -m644 /aurora/shell/index.html        /usr/share/aurora/shell/
 install -m644 /aurora/shell/aurora-bridge.js  /usr/share/aurora/shell/
@@ -137,7 +137,7 @@ EOF
 
 cat > /etc/systemd/system/aurorad.service <<'EOF'
 [Unit]
-Description=AuroraOS system bridge
+Description=DaybreakOS system bridge
 After=network.target aura-llm.service
 Wants=aura-llm.service
 [Service]
@@ -171,4 +171,4 @@ user_pref("browser.tabs.inTitlebar", 1);
 EOF
 chown -R aurora:aurora /var/lib/aurora
 
-echo "== 10 complete — exit chroot; optionally run 11-make-iso.sh, or reboot into AuroraOS =="
+echo "== 10 complete — exit chroot; optionally run 11-make-iso.sh, or reboot into DaybreakOS =="

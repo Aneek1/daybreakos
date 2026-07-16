@@ -1,4 +1,4 @@
-# AuroraOS — running external applications
+# DaybreakOS — running external applications
 
 **Date:** 2026-07-10
 **Status:** Approved (design)
@@ -6,11 +6,11 @@
 
 ## Problem
 
-AuroraOS boots `cage -d -- firefox --kiosk index.html`. **cage is a single-window
+DaybreakOS boots `cage -d -- firefox --kiosk index.html`. **cage is a single-window
 kiosk compositor** — it shows exactly one fullscreen client and cannot display a
 second window. So today the "apps" in the shell are HTML inside one Firefox
 instance; no native program can appear on screen. To be a dual-boot daily driver,
-AuroraOS needs to (a) *display* native windows and (b) have a way to *install* them
+DaybreakOS needs to (a) *display* native windows and (b) have a way to *install* them
 — LFS ships neither a multi-window compositor session nor a package manager.
 
 ## Two independent axes
@@ -78,7 +78,7 @@ Files, Notepad…), labwc manages **native** windows. A user sees both. The clea
 unification — make the shell a `layer-shell` background/panel so it's purely the
 launcher+taskbar and *all* real windows are native — is a larger project
 (effectively a full desktop environment) and is **out of scope for v1**. v1's goal
-is simply: you can install and run real apps on AuroraOS.
+is simply: you can install and run real apps on DaybreakOS.
 
 ## Scripts / files touched
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 06 — full base system, run INSIDE the chroot (LFS 12.3 ch. 7.5–8).
+# DaybreakOS 06 — full base system, run INSIDE the chroot (LFS 12.3 ch. 7.5–8).
 # Recipe-table implementation. Test suites are skipped for build time; for a
 # production system run the glibc/gcc/binutils suites per the book.
 set -e

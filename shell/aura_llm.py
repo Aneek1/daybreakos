@@ -46,7 +46,7 @@ def build_prompt(tools, user_text):
         args = ", ".join(f"{k} ({v})" for k, v in t["args"].items()) or "none"
         lines.append(f'- {t["name"]}: {t["description"]} args: {args}')
     system = (
-        "You are Aura, the friendly on-device AI assistant built into AuroraOS, a "
+        "You are Aura, the friendly on-device AI assistant built into DaybreakOS, a "
         "Linux desktop. You run entirely on the user's own device — no cloud. "
         "Chat naturally and helpfully, and keep answers concise (1-3 sentences "
         "unless the user asks for more).\n"
@@ -150,7 +150,7 @@ def model_installed():
         return False
 
 _SETUP_HINT = ('I don\'t have my language model on this machine yet — open the '
-               'Aurora menu and choose "Set up Aura (AI)" to download it '
+               'Daybreak menu and choose "Set up Aura (AI)" to download it '
                '(~0.8 GB, one time). Until then I can still open apps and '
                'report system status.')
 

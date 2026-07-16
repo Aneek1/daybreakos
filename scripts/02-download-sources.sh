@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 02 — fetch all sources: LFS official list + AuroraOS extras
+# DaybreakOS 02 — fetch all sources: LFS official list + DaybreakOS extras
 set -e
 . "$(dirname "$0")/../config/build.conf"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,7 +25,7 @@ md5sum -c md5sums 2>&1 | grep -v ': OK$' || true
 if md5sum -c md5sums >/dev/null 2>&1; then echo "all LFS sources OK"; else
   echo "!! some sources failed verification — delete the bad files and re-run"; exit 1; fi
 
-echo "== AuroraOS extras (Wayland kiosk stack + Firefox binary) =="
+echo "== DaybreakOS extras (Wayland kiosk stack + Firefox binary) =="
 mkdir -p extras && cd extras
 # --content-disposition so GitHub/codeberg /archive/ urls save with their proper
 # repo-prefixed name (e.g. labwc-0.8.4.tar.gz), not the bare tag (0.8.4.tar.gz)

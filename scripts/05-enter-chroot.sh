@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 05 — prepare and enter chroot (LFS 12.3 ch. 7.2–7.4). Run as root.
+# DaybreakOS 05 — prepare and enter chroot (LFS 12.3 ch. 7.2–7.4). Run as root.
 set -e
 . "$(dirname "$0")/../config/build.conf"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

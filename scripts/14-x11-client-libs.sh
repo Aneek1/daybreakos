@@ -1,9 +1,9 @@
 #!/bin/bash
-# AuroraOS script 14 — X11 CLIENT libraries + ALSA + libgpg-error.
+# DaybreakOS script 14 — X11 CLIENT libraries + ALSA + libgpg-error.
 #
-# AuroraOS runs a pure-Wayland compositor (labwc) and was built without any
+# DaybreakOS runs a pure-Wayland compositor (labwc) and was built without any
 # X11 client libraries. But virtually every prebuilt GTK3 app (AppImages in the
-# Aurora Store: Xournal++, browsers, GNOME apps, file managers) is linked
+# Daybreak Store: Xournal++, browsers, GNOME apps, file managers) is linked
 # against libX11/libxcb even when it renders through the Wayland backend, so it
 # fails to start with "libX11.so.6: cannot open shared object file".
 #

@@ -1,6 +1,6 @@
-# AuroraOS — an LFS-based distro with its own native desktop and on-device AI
+# DaybreakOS — an LFS-based distro with its own native desktop and on-device AI
 
-AuroraOS is built with **Linux From Scratch 12.3 (systemd)**. It boots into a
+DaybreakOS is built with **Linux From Scratch 12.3 (systemd)**. It boots into a
 fully custom desktop environment — **Aurora Shell**, written in C with GTK3 and
 `gtk-layer-shell` over the `labwc` Wayland compositor. Not a browser kiosk and
 not an off-the-shelf desktop: the top bar, dock, app launcher, wallpaper, and
@@ -25,7 +25,7 @@ offline, no cloud.
 
 - A build host (or VM) with a distro that passes `00-check-host.sh` (Debian 12 / Ubuntu 24.04 work)
 - **Architectures:** x86_64 and aarch64. The build host's arch is the target
-  arch (`AURORA_ARCH` auto-detects). For aarch64 — including running AuroraOS
+  arch (`AURORA_ARCH` auto-detects). For aarch64 — including running DaybreakOS
   on Apple Silicon in a VM — see `docs/build-host-utm.md`.
 - A spare disk or virtual disk (≥ 30 GB) — **it will be wiped**
 - 4+ cores, 8+ GB RAM, and patience: **6–12 hours of compilation** (~200 SBU total)
@@ -53,7 +53,7 @@ qemu-system-x86_64 -enable-kvm -m 8G -smp 4 \
 | 6 | `scripts/06-base-system.sh` | Full base system in chroot (LFS ch. 7–8) | 3–6 h |
 | 7 | `scripts/07-system-config.sh` | Users, network, fstab, os-release, branding | 5 min |
 | 8 | `scripts/08-kernel.sh` | Kernel with `config/kernel.fragment` | ~30 min |
-| 9 | `scripts/09-bootloader.sh` | GRUB (UEFI) + AuroraOS entry | 5 min |
+| 9 | `scripts/09-bootloader.sh` | GRUB (UEFI) + DaybreakOS entry | 5 min |
 | 10 | `scripts/10-aurora-shell.sh` | Wayland stack, Firefox, shell, aurorad, services | 1–3 h |
 | 12 | `scripts/12-apps.sh` | External-app stack: labwc compositor + foot terminal + AppImage/Nix helpers | 30 min |
 | 13 | `scripts/13-aurora-desktop.sh` | **Native Aurora desktop**: gtk-layer-shell, `aurora-shell`, Aura LLM (llama.cpp + model), labwc session + autologin | 1–2 h |
@@ -92,18 +92,18 @@ Login is automatic on tty1 as the unprivileged `aurora` user, which starts
 `aurorad` (system bridge on 127.0.0.1:7212), and `aurora-shell` (the desktop).
 Click **◆ Aura** in the top bar to chat with the assistant or give it commands;
 the first reply after boot waits a few seconds for the model to load. **◇ Store**
-opens the Aurora Store to install apps in one click, and **▦ Apps** opens the
+opens the Daybreak Store to install apps in one click, and **▦ Apps** opens the
 searchable launcher. Open a terminal from the dock or with **Super+Return**
 (`foot`); close windows with the titlebar **×**, **Alt+F4**, or **Super+Q**. TTY2 (Ctrl-Alt-F2) gives you a
 normal shell — user `aneek`, password set during script 7.
 
 ## Installing & running applications
 
-AuroraOS boots into **labwc** (a small Wayland compositor); the Aurora shell is the
+DaybreakOS boots into **labwc** (a small Wayland compositor); the Aurora shell is the
 base layer and native apps float on top. Open a terminal with **Super+Return**
 (`foot`). Ways to get software onto the system:
 
-- **Aurora Store** (easiest — one click). Click **◇ Store** in the top bar for a
+- **Daybreak Store** (easiest — one click). Click **◇ Store** in the top bar for a
   curated catalog of GTK apps (calculator, text editor, notes, system monitor…).
   Hit **Get** and aurorad downloads the app's AppImage, unpacks it under
   `~/Applications` (extract-and-run — no FUSE needed), and drops a launcher into

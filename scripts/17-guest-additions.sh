@@ -1,8 +1,8 @@
 #!/bin/bash
-# AuroraOS script 17 — VirtualBox Guest Additions (7.2.12) for dynamic display
+# DaybreakOS script 17 — VirtualBox Guest Additions (7.2.12) for dynamic display
 # resize (the desktop follows the VM window) on the VMSVGA controller.
 #
-# Builds vboxguest/vboxsf/vboxvideo against the AuroraOS kernel, installs the
+# Builds vboxguest/vboxsf/vboxvideo against the DaybreakOS kernel, installs the
 # GA userland, and wires VBoxService as a systemd service. VBoxService itself
 # spawns /usr/bin/VBoxDRMClient, which drives the vmwgfx DRM resize.
 #
@@ -30,7 +30,7 @@ PY
   tar xf /tmp/ga/VBoxGuestAdditions-amd64.tar.bz2 -C "$PAY"
 fi
 
-# 2) build the kernel modules against the AuroraOS kernel
+# 2) build the kernel modules against the DaybreakOS kernel
 cd "$PAY/src/vboxguest-$GA_VER"
 make KERN_DIR="$KSRC" KERN_VER="$KVER" -j"$(nproc)" >/dev/null
 echo "modules: $(ls *.ko | tr '\n' ' ')"

@@ -1,5 +1,5 @@
 /*
- * aurora-settings — AuroraOS's own System Settings app.
+ * aurora-settings — DaybreakOS's own System Settings app.
  *
  * A small native GTK3 app (regular xdg-toplevel window, not a layer surface) in
  * the Aurora "daybreak" identity. Sidebar + stack of pages: About, Display,
@@ -82,7 +82,7 @@ static GtkWidget *build_about(void) {
     GtkWidget *mark = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(mark),
         "<span foreground='#34e0c8' size='xx-large'>◗</span>");
-    GtkWidget *name = gtk_label_new("AuroraOS");
+    GtkWidget *name = gtk_label_new("DaybreakOS");
     gtk_style_context_add_class(gtk_widget_get_style_context(name), "hname");
     GtkWidget *ver = gtk_label_new("1.0 — Daybreak");
     gtk_style_context_add_class(gtk_widget_get_style_context(ver), "hver");

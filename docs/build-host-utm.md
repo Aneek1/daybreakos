@@ -1,6 +1,6 @@
 # aarch64 build host: Debian 12 VM in UTM on the M4 MacBook Pro
 
-LFS builds natively — to produce aarch64 AuroraOS you build *on* aarch64.
+LFS builds natively — to produce aarch64 DaybreakOS you build *on* aarch64.
 The M4 itself is the build machine, via a VM.
 
 ## One-time setup (on macOS)
@@ -24,8 +24,8 @@ The M4 itself is the build machine, via a VM.
      squashfs-tools xorriso mtools grub-efi-arm64-bin dosfstools parted \
      qemu-system-arm qemu-efi-aarch64 busybox-static sudo
    ln -sf bash /bin/sh    # LFS requires /bin/sh -> bash
-   git clone https://github.com/Aneek1/auroraos.git /root/auroraos
-   cd /root/auroraos && bash scripts/00-check-host.sh
+   git clone https://github.com/Aneek1/daybreakos.git /root/daybreakos
+   cd /root/daybreakos && bash scripts/00-check-host.sh
    ```
 
 ## Build

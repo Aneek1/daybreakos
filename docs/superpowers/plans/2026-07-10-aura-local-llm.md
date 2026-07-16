@@ -186,7 +186,7 @@ def build_prompt(tools, user_text):
         args = ", ".join(f"{k} ({v})" for k, v in t["args"].items()) or "none"
         lines.append(f'- {t["name"]}: {t["description"]} args: {args}')
     system = (
-        "You are Aura, the on-device assistant for AuroraOS. You either answer in "
+        "You are Aura, the on-device assistant for DaybreakOS. You either answer in "
         "prose, or perform actions by emitting a JSON object on its own line:\n"
         '{"reply": "<short confirmation>", "tool_calls": [{"cmd": "<tool>", "args": {...}}]}\n'
         "Tools you may call:\n" + "\n".join(lines) + "\n"
@@ -710,7 +710,7 @@ Replace the whole `elif self.path == "/ask":` block (`shell/aurorad.py:176-189`)
         elif self.path == "/ask":
             q = data.get("q") or ""
             status = {"battery": battery(), "brightness": brightness_get(),
-                      "net": net_up(), "os": "AuroraOS"}
+                      "net": net_up(), "os": "DaybreakOS"}
             executors = {
                 "set_brightness": lambda a: (brightness_set(int(a.get("percent", 50)))
                                              and f"Brightness set to {int(a.get('percent',50))}%."),
@@ -928,7 +928,7 @@ EOF
 
 cat > /etc/systemd/system/aurorad.service <<'EOF'
 [Unit]
-Description=AuroraOS system bridge
+Description=DaybreakOS system bridge
 After=network.target aura-llm.service
 Wants=aura-llm.service
 [Service]

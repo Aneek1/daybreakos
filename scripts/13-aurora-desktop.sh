@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 13 — the NATIVE Aurora desktop (replaces the Firefox web-shell path).
+# DaybreakOS 13 — the NATIVE Aurora desktop (replaces the Firefox web-shell path).
 # Wayland compositor (labwc, wlroots/pixman) + Aurora's own GTK3 shell + Aura LLM.
 # Run INSIDE the chroot. Software rendering only (no GPU, no LLVM): mesa builds
 # softpipe just to satisfy gbm/GLES for wlroots; the shell renders via GTK cairo.
@@ -182,18 +182,18 @@ install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
 install -Dm644 /aurora/shell/aura_llm.py       /usr/lib/aurora/aura_llm.py
 install -Dm755 /aurora/shell/aurorad.py         /usr/lib/aurora/aurorad
 
-# Aurora Store catalog (pipe-delimited; read by both aurorad and aurora-shell)
+# Daybreak Store catalog (pipe-delimited; read by both aurorad and aurora-shell)
 install -Dm644 /aurora/store/catalog /usr/share/aurora/store/catalog
 
 # CA certificates — the LFS base ships none, so Python's ssl/urllib can't verify
-# github.com and every Aurora Store download fails. Install a Mozilla CA bundle at
+# github.com and every Daybreak Store download fails. Install a Mozilla CA bundle at
 # OpenSSL's default path (Python reads get_default_verify_paths().openssl_cafile
 # = /etc/ssl/cert.pem) plus the common ca-certificates.crt location.
 if [ -f /aurora/config/cacert.pem ]; then
   install -Dm644 /aurora/config/cacert.pem /etc/ssl/cert.pem
   install -Dm644 /aurora/config/cacert.pem /etc/ssl/certs/ca-certificates.crt
 else
-  echo "!! config/cacert.pem missing — Aurora Store HTTPS downloads will fail cert verify"
+  echo "!! config/cacert.pem missing — Daybreak Store HTTPS downloads will fail cert verify"
 fi
 
 # ---------- 5b) SVG icon support (libcroco + librsvg, C — no Rust) ----------
@@ -280,7 +280,7 @@ cat > /etc/xdg/labwc/rc.xml <<'EOF'
 </labwc_config>
 EOF
 cat > /etc/xdg/labwc/autostart <<'EOF'
-# AuroraOS session autostart (labwc)
+# DaybreakOS session autostart (labwc)
 /usr/lib/aurora/aura-llm-launch &
 /usr/bin/python3 /usr/lib/aurora/aurorad &
 /usr/bin/aurora-shell &
@@ -335,7 +335,7 @@ ExecStart=-/sbin/agetty --autologin aurora --noissue %I $TERM
 EOF
 # start the desktop on login at tty1
 cat > /var/lib/aurora/.bash_profile <<'EOF'
-# AuroraOS: start the desktop automatically on the first VT
+# DaybreakOS: start the desktop automatically on the first VT
 if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
   printf '\033[2J\033[H'   # blank the VT so no login text flashes pre-desktop
   exec /usr/bin/aurora-session

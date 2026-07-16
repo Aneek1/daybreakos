@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 09 — GRUB (UEFI). Run INSIDE the chroot; /boot/efi must be mounted.
+# DaybreakOS 09 — GRUB (UEFI). Run INSIDE the chroot; /boot/efi must be mounted.
 set -e
 . /aurora/config/build.conf
 mountpoint -q /boot/efi || { echo "!! /boot/efi not mounted"; exit 1; }
@@ -8,8 +8,8 @@ mountpoint -q /sys/firmware/efi/efivars || \
   echo "(efivars unavailable — NVRAM entry will be skipped; using removable path)"
 
 grub-install --target=$GRUB_TARGET --efi-directory=/boot/efi \
-  --bootloader-id=AuroraOS --removable || \
-grub-install --target=$GRUB_TARGET --efi-directory=/boot/efi --bootloader-id=AuroraOS
+  --bootloader-id=DaybreakOS --removable || \
+grub-install --target=$GRUB_TARGET --efi-directory=/boot/efi --bootloader-id=DaybreakOS
 
 ROOTDEV=$(grep ROOT /.aurora-disk 2>/dev/null | cut -d= -f2)
 cat > /boot/grub/grub.cfg <<EOF
@@ -21,11 +21,11 @@ insmod ext2
 insmod all_video
 set gfxpayload=keep
 
-menuentry "AuroraOS 1.0 — daybreak" {
+menuentry "DaybreakOS 1.0 — daybreak" {
   linux /boot/vmlinuz-aurora root=${ROOTDEV:-/dev/sda2} rw quiet loglevel=3 vt.global_cursor_default=0
 }
 
-menuentry "AuroraOS (verbose / rescue)" {
+menuentry "DaybreakOS (verbose / rescue)" {
   linux /boot/vmlinuz-aurora root=${ROOTDEV:-/dev/sda2} rw systemd.unit=multi-user.target
 }
 EOF

@@ -1,13 +1,13 @@
-# AuroraOS on Apple Silicon M4 — bare-metal dual-boot design
+# DaybreakOS on Apple Silicon M4 — bare-metal dual-boot design
 
 **Date:** 2026-07-10
 **Status:** Approved (design), plan pending
-**Target hardware:** MacBook Pro (M4 family — t8132-class SoC), dual-booting macOS + AuroraOS
-**Prior state:** AuroraOS is an x86_64 LFS 12.3 build (scripts 00–11) booting a Wayland-kiosk web shell. No aarch64 support, no Mac support.
+**Target hardware:** MacBook Pro (M4 family — t8132-class SoC), dual-booting macOS + DaybreakOS
+**Prior state:** DaybreakOS is an x86_64 LFS 12.3 build (scripts 00–11) booting a Wayland-kiosk web shell. No aarch64 support, no Mac support.
 
 ## Goal
 
-Boot AuroraOS bare-metal on the user's M4 MacBook Pro alongside macOS, Asahi-Linux-style: macOS stays intact and fully secure; AuroraOS lives in its own APFS volume with per-volume Permissive Security. Where the M4 SoC is unsupported upstream (it currently is — Asahi covers M1/M2 only), we do the bringup ourselves, standing on Asahi's architecture (m1n1, their kernel tree, their installer) rather than rewriting it.
+Boot DaybreakOS bare-metal on the user's M4 MacBook Pro alongside macOS, Asahi-Linux-style: macOS stays intact and fully secure; DaybreakOS lives in its own APFS volume with per-volume Permissive Security. Where the M4 SoC is unsupported upstream (it currently is — Asahi covers M1/M2 only), we do the bringup ourselves, standing on Asahi's architecture (m1n1, their kernel tree, their installer) rather than rewriting it.
 
 ## Accepted realities (agreed with user)
 
@@ -23,7 +23,7 @@ Boot AuroraOS bare-metal on the user's M4 MacBook Pro alongside macOS, Asahi-Lin
 SecureROM → iBoot1 → iBoot2 (Aurora stub volume, Permissive Security)
   → m1n1 (our fork, + t8132 support)            [installed via kmutil]
   → Linux (Asahi kernel tree + our t8132 DTs/drivers)
-  → AuroraOS aarch64 rootfs → aurora-shell kiosk
+  → DaybreakOS aarch64 rootfs → aurora-shell kiosk
 ```
 
 - A separate APFS "Aurora" stub volume is created; `bputil` downgrades **only that volume** to Permissive Security. macOS's own volume and boot policy are never modified.
@@ -36,8 +36,8 @@ SecureROM → iBoot1 → iBoot2 (Aurora stub volume, Permissive Security)
 
 ### Two parallel workstreams
 
-**WS-A — aarch64 AuroraOS rootfs (independent, ships early).**
-Port the LFS build from x86_64 to aarch64: retarget `LFS_TGT`, adapt toolchain scripts (binutils/gcc/glibc pass1/2 are arch-clean in LFS; kernel + bootloader steps change), aarch64 kernel config, boot via UEFI (VM) — GRUB works on aarch64-EFI for the VM case. Deliverable: AuroraOS boots in a VM on the M4 (UTM / Apple Virtualization framework) with the full Aurora shell. This is required for bare metal anyway (it *is* the rootfs) and gives a working AuroraOS-on-M4 experience while WS-B climbs.
+**WS-A — aarch64 DaybreakOS rootfs (independent, ships early).**
+Port the LFS build from x86_64 to aarch64: retarget `LFS_TGT`, adapt toolchain scripts (binutils/gcc/glibc pass1/2 are arch-clean in LFS; kernel + bootloader steps change), aarch64 kernel config, boot via UEFI (VM) — GRUB works on aarch64-EFI for the VM case. Deliverable: DaybreakOS boots in a VM on the M4 (UTM / Apple Virtualization framework) with the full Aurora shell. This is required for bare metal anyway (it *is* the rootfs) and gives a working DaybreakOS-on-M4 experience while WS-B climbs.
 
 **WS-B — bare-metal bringup ladder (research track).**
 Each rung has a concrete observable; we never claim progress without it:

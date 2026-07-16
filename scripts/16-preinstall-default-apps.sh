@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS script 16 — pre-install default apps into the system image so they
+# DaybreakOS script 16 — pre-install default apps into the system image so they
 # appear in the app drawer out of the box (no Store trip needed). Each is a
 # self-contained "anylinux" AppImage, extracted to /opt/aurora-apps/<id> with a
 # .desktop written into /usr/share/applications (which the shell's launcher

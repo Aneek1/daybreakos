@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 99 — boot the live ISO in QEMU (smoke test). Run on the build host.
+# DaybreakOS 99 — boot the live ISO in QEMU (smoke test). Run on the build host.
 set -e
 . "$(dirname "$0")/../config/build.conf"
 ISO=${1:?usage: 99-smoke-qemu.sh <iso>}

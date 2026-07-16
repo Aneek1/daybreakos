@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""aurorad — AuroraOS system bridge.
+"""aurorad — DaybreakOS system bridge.
 
 Tiny localhost HTTP API the web shell talks to. Root service, binds
 127.0.0.1 only (port from $AURORAD_PORT, default 7212). Endpoints:
@@ -109,7 +109,7 @@ def safe_path(p):
     if p.startswith(("/home", "/usr/share/aurora", "/tmp")): return p
     return "/home"
 
-# ---------------- Aurora Store: catalog + AppImage install ----------------
+# ---------------- Daybreak Store: catalog + AppImage install ----------------
 # Apps are installed by downloading their AppImage, extracting it (no FUSE
 # needed via --appimage-extract), and writing a .desktop into the user's app
 # dir so it appears in the launcher/dock like any other app.
@@ -540,7 +540,7 @@ def _do_install(disk):
             else:
                 _run(["mount"] + opt + ["none", tgt])
         _run(["chroot", T, "grub-install", "--target=x86_64-efi",
-              "--efi-directory=/boot/efi", "--bootloader-id=AuroraOS",
+              "--efi-directory=/boot/efi", "--bootloader-id=DaybreakOS",
               "--removable", "--recheck"])
 
         _ist("Writing boot config", 92)
@@ -553,18 +553,18 @@ def _do_install(disk):
                 "set default=0\nset timeout=1\nset timeout_style=hidden\n"
                 "insmod part_gpt\ninsmod ext2\ninsmod all_video\n"
                 "set gfxpayload=keep\n\n"
-                'menuentry "AuroraOS" {\n'
+                'menuentry "DaybreakOS" {\n'
                 "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw quiet loglevel=3 "
                 "systemd.show_status=0 udev.log_level=3 vt.global_cursor_default=0 "
                 "video=1920x1080\n}\n\n"
-                'menuentry "AuroraOS (safe mode — show boot messages)" {\n'
+                'menuentry "DaybreakOS (safe mode — show boot messages)" {\n'
                 "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw video=1920x1080\n}\n"
                 % (rpart, rpart))
 
         _ist("Writing fstab", 96)
         euuid = _uuid(esp)
         with open(T + "/etc/fstab", "w") as f:
-            f.write("# AuroraOS — written by the installer\n"
+            f.write("# DaybreakOS — written by the installer\n"
                     "UUID=%s  /          ext4  defaults,noatime  0 1\n"
                     "UUID=%s  /boot/efi  vfat  umask=0077        0 2\n"
                     % (ruuid, euuid))
@@ -686,7 +686,7 @@ def _aura_download():
     tmp = dest + ".part"
     try:
         os.makedirs(AURA_MODEL_DIR, exist_ok=True)
-        req = urllib.request.Request(AURA_MODEL_URL, headers={"User-Agent": "AuroraOS"})
+        req = urllib.request.Request(AURA_MODEL_URL, headers={"User-Agent": "DaybreakOS"})
         with urllib.request.urlopen(req, timeout=60) as r:
             total = int(r.headers.get("Content-Length", 0))
             got = 0
@@ -752,7 +752,7 @@ class H(BaseHTTPRequestHandler):
                         "hostname": read1("/etc/hostname") or "aurora",
                         "load": os.getloadavg()[0], "uptime": int(time.time() - START),
                         "net": net_up(),
-                        "os": "AuroraOS 1.0 (daybreak)"})
+                        "os": "DaybreakOS 1.0 (aurora)"})
         elif url.path == "/files":
             path = safe_path(q.get("path", ["~"])[0])
             try:
@@ -845,7 +845,7 @@ class H(BaseHTTPRequestHandler):
         elif self.path == "/ask":
             q = data.get("q") or ""
             status = {"battery": battery(), "brightness": brightness_get(),
-                      "net": net_up(), "os": "AuroraOS"}
+                      "net": net_up(), "os": "DaybreakOS"}
             env = {**os.environ,
                    "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", "wayland-0"),
                    "MOZ_ENABLE_WAYLAND": "1"}

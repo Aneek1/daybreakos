@@ -1,4 +1,4 @@
-/* AuroraOS native shell — daybreak identity ported from shell/index.html.
+/* DaybreakOS native shell — daybreak identity ported from shell/index.html.
    GTK3 CSS. Aurora spectrum: #34e0c8 teal, #6ce5a0 green, #8b7cf6 violet,
    #f072b6 pink, #f4a988 horizon; night base #0a0e1a. */
 
@@ -124,7 +124,7 @@ menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.
   border-radius: 10px; color: #eef1f8; padding: 8px 10px;
 }
 
-/* ---- Aurora Store ---- */
+/* ---- Daybreak Store ---- */
 #store {
   background-color: rgba(13,16,28,0.96);
   border: 1px solid rgba(255,255,255,0.14);
@@ -154,7 +154,7 @@ menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.
 .sget:hover { background-color: #5eebd6; }
 .sget:disabled { background-color: rgba(255,255,255,0.10); color: #98a2ba; }
 
-/* ---- About window (Aurora menu) — fully opaque dark card ---- */
+/* ---- About window (Daybreak menu) — fully opaque dark card ---- */
 #aboutwin { background-color: #0d1424; }
 /* .abt-* typography is shared by About, the installer, and Aura setup */
 .abt-name { font-size: 26px; font-weight: 800; color: #eef1f8; }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 04 — cross-compiled temporary tools (LFS 12.3 ch. 6)
+# DaybreakOS 04 — cross-compiled temporary tools (LFS 12.3 ch. 6)
 set -e
 . "$(dirname "$0")/../config/build.conf"
 

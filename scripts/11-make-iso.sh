@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 11 — optional live ISO. Run on the HOST (not chroot) after 10.
+# DaybreakOS 11 — optional live ISO. Run on the HOST (not chroot) after 10.
 # Needs on host: squashfs-tools, xorriso, cpio, mtools, and grub EFI tools for
 # the build arch (x86_64: grub-efi-amd64-bin + grub-pc-bin; aarch64: grub-efi-arm64-bin).
 set -e
@@ -62,7 +62,7 @@ cp "$LFS/boot/vmlinuz-aurora" "$WORK/iso/boot/"
 cat > "$WORK/iso/boot/grub/grub.cfg" <<EOF
 insmod search_label
 insmod chain
-# Hand off to an installed AuroraOS when one exists (its ESP is labelled
+# Hand off to an installed DaybreakOS when one exists (its ESP is labelled
 # "EFI" by the installer). VirtualBox EFI — and many real firmwares — insist
 # on booting removable media first, so without this the attached ISO/USB
 # hijacks every reboot. The live/installer entry stays in the menu for
@@ -76,11 +76,11 @@ fi
 # open this menu (e.g. to reinstall over an existing system).
 set timeout=2
 set timeout_style=hidden
-menuentry "AuroraOS (installed system)" --id installed {
+menuentry "DaybreakOS (installed system)" --id installed {
   search --no-floppy --label EFI --set=root
   chainloader /EFI/BOOT/BOOTX64.EFI
 }
-menuentry "AuroraOS ${DISTRO_VERSION} — live / installer" --id live {
+menuentry "DaybreakOS ${DISTRO_VERSION} — live / installer" --id live {
   linux /boot/vmlinuz-aurora quiet loglevel=3 systemd.show_status=0 udev.log_level=3 vt.global_cursor_default=0 video=1920x1080
   initrd /boot/initramfs.gz
 }

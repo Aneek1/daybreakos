@@ -1,5 +1,5 @@
 [Unit]
-Description=AuroraOS system bridge (aurorad)
+Description=DaybreakOS system bridge (aurorad)
 After=network.target
 
 [Service]

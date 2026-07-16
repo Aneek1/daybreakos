@@ -1,5 +1,5 @@
 #!/bin/bash
-# AuroraOS 01 — partition and mount the target disk. DESTRUCTIVE.
+# DaybreakOS 01 — partition and mount the target disk. DESTRUCTIVE.
 set -e
 . "$(dirname "$0")/../config/build.conf"
 

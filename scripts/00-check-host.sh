@@ -1,9 +1,9 @@
 #!/bin/bash
-# AuroraOS 00 — verify host requirements (LFS 12.3 ch. 2.2)
+# DaybreakOS 00 — verify host requirements (LFS 12.3 ch. 2.2)
 set -e
 . "$(dirname "$0")/../config/build.conf"
 
-echo "== AuroraOS host check =="
+echo "== DaybreakOS host check =="
 [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
 
 ver_check(){
