@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111d">
+  <meta name="description" content="DaybreakOS — an LFS-based Linux distribution with a native Aurora desktop and on-device AI.">
+  <title>DaybreakOS — Linux, rebuilt for the daybreak</title>
+  <style>
+    :root{
+      --bg:#050914;
+      --bg2:#081221;
+      --ink:#f4f8ff;
+      --muted:#9eafc4;
+      --line:rgba(255,255,255,.11);
+      --glass:rgba(10,20,35,.62);
+      --cyan:#6ee7ff;
+      --blue:#6d8cff;
+      --violet:#a978ff;
+      --gold:#ffd78a;
+      --green:#86efac;
+      --shadow:0 30px 90px rgba(0,0,0,.42);
+      --radius:28px;
+      --max:1180px;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;background:
+        radial-gradient(circle at 18% 8%,rgba(76,150,255,.18),transparent 28rem),
+        radial-gradient(circle at 82% 18%,rgba(164,94,255,.18),transparent 30rem),
+        linear-gradient(180deg,var(--bg),#03060d 70%);
+      color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      line-height:1.6;overflow-x:hidden;
+    }
+    a{color:inherit;text-decoration:none}
+    button{font:inherit}
+    .aurora{
+      position:fixed;inset:-20%;z-index:-2;pointer-events:none;filter:blur(70px);opacity:.55;
+      background:
+        conic-gradient(from 190deg at 50% 50%,transparent 0 18%,rgba(76,221,255,.34) 27%,rgba(114,88,255,.30) 39%,transparent 49%,rgba(255,153,214,.16) 63%,transparent 75%);
+      animation:drift 18s ease-in-out infinite alternate;
+    }
+    .grain{position:fixed;inset:0;z-index:-1;opacity:.055;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E")}
+    @keyframes drift{from{transform:translate3d(-3%,0,0) rotate(-7deg) scale(1)}to{transform:translate3d(4%,2%,0) rotate(9deg) scale(1.08)}}
+    .wrap{width:min(var(--max),calc(100% - 40px));margin:auto}
+    nav{
+      position:sticky;top:14px;z-index:20;margin:14px auto 0;width:min(var(--max),calc(100% - 28px));
+      display:flex;align-items:center;justify-content:space-between;padding:12px 14px 12px 18px;
+      border:1px solid var(--line);background:rgba(5,10,20,.68);backdrop-filter:blur(22px);border-radius:18px;
+      box-shadow:0 16px 50px rgba(0,0,0,.22)
+    }
+    .brand{display:flex;align-items:center;gap:11px;font-weight:800;letter-spacing:-.03em}
+    .mark{width:31px;height:31px;border-radius:10px;position:relative;overflow:hidden;background:linear-gradient(145deg,#e8fbff,#72dfff 42%,#7b6dff 80%);box-shadow:0 0 28px rgba(110,231,255,.3)}
+    .mark:after{content:"";position:absolute;width:42px;height:13px;left:-7px;bottom:5px;border-radius:50%;background:rgba(255,255,255,.65);transform:rotate(-18deg);filter:blur(3px)}
+    .links{display:flex;gap:25px;color:#aebbd0;font-size:14px}
+    .links a:hover{color:white}
+    .nav-cta{padding:9px 14px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.06);font-size:14px}
+    .hero{min-height:820px;display:grid;place-items:center;text-align:center;padding:90px 0 70px}
+    .eyebrow{display:inline-flex;gap:8px;align-items:center;padding:7px 11px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.045);color:#c9d6e8;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+    .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 15px var(--green)}
+    h1{font-size:clamp(58px,9vw,118px);line-height:.92;letter-spacing:-.075em;margin:25px auto 25px;max-width:1050px}
+    .gradient{background:linear-gradient(110deg,#fff 12%,#d6f9ff 37%,#9fb8ff 65%,#d8a9ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .hero p{max-width:720px;margin:auto;color:var(--muted);font-size:clamp(17px,2vw,21px)}
+    .actions{display:flex;justify-content:center;gap:12px;margin:31px 0 50px;flex-wrap:wrap}
+    .btn{padding:13px 18px;border-radius:14px;border:1px solid var(--line);font-weight:700;transition:.25s;cursor:pointer}
+    .btn:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.25)}
+    .primary{background:linear-gradient(135deg,#effcff,#9beaff 55%,#a897ff);color:#07101c;border:0}
+    .secondary{background:rgba(255,255,255,.055)}
+    .desktop{
+      width:min(100%,1040px);aspect-ratio:16/9;border:1px solid rgba(255,255,255,.16);border-radius:24px;
+      background:
+        radial-gradient(circle at 50% 40%,rgba(100,220,255,.16),transparent 27%),
+        linear-gradient(135deg,#0b1728,#08101b 55%,#120d20);
+      box-shadow:var(--shadow),0 0 100px rgba(83,129,255,.14);position:relative;overflow:hidden;
+      transform:perspective(1300px) rotateX(4deg);transition:transform .2s ease;
+    }
+    .desktop:before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 25%,rgba(255,255,255,.09) 48%,transparent 61%);transform:translateX(-100%);animation:sheen 7s infinite}
+    @keyframes sheen{50%,100%{transform:translateX(120%)}}
+    .bar{height:38px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:11px;color:#b9c8db}
+    .window{position:absolute;left:8%;right:8%;top:17%;bottom:13%;display:grid;grid-template-columns:180px 1fr;gap:1px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.045);overflow:hidden;box-shadow:0 25px 70px rgba(0,0,0,.4)}
+    .side{padding:18px;text-align:left;border-right:1px solid var(--line);background:rgba(2,8,16,.48)}
+    .side b{font-size:13px}.side div{margin-top:18px;color:#8495ab;font-size:12px}
+    .mainwin{padding:22px;text-align:left}
+    .mini-title{font-size:22px;font-weight:750;letter-spacing:-.04em}.mini-sub{color:#7f91a8;font-size:12px}
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}
+    .mini{padding:14px;border:1px solid var(--line);background:rgba(255,255,255,.045);border-radius:14px}
+    .mini strong{font-size:20px}.mini small{display:block;color:#7f91a8;margin-top:3px}
+    section{padding:110px 0}
+    .section-head{max-width:730px;margin-bottom:42px}
+    .kicker{color:var(--cyan);font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    h2{font-size:clamp(38px,5vw,68px);line-height:1;letter-spacing:-.06em;margin:12px 0 17px}
+    .lead{color:var(--muted);font-size:18px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .card{border:1px solid var(--line);background:linear-gradient(145deg,rgba(255,255,255,.07),rgba(255,255,255,.025));border-radius:var(--radius);padding:26px;box-shadow:0 18px 60px rgba(0,0,0,.16);transition:.3s}
+    .card:hover{transform:translateY(-5px);border-color:rgba(140,220,255,.25)}
+    .icon{font-size:24px;margin-bottom:24px}.card h3{margin:0 0 8px;font-size:20px}.card p{margin:0;color:var(--muted);font-size:14px}
+    .architecture{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;align-items:stretch}
+    .stack{display:flex;flex-direction:column;gap:10px}
+    .layer{padding:21px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.045);display:flex;justify-content:space-between;align-items:center}
+    .layer span{color:var(--muted);font-size:13px}
+    .terminal{background:#03060a;border-radius:var(--radius);border:1px solid var(--line);overflow:hidden;min-height:390px}
+    .termbar{height:42px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:7px;padding:0 15px;color:#73839a;font-size:12px}
+    .ball{width:8px;height:8px;border-radius:50%;background:#5f6b7c}.termcode{padding:25px;font:13px/2.1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#a9bed2}.prompt{color:#75e4a0}.cyan{color:var(--cyan)}.purple{color:#b899ff}.cursor{display:inline-block;width:7px;height:15px;background:#bfefff;vertical-align:-3px;animation:blink 1s steps(1) infinite}@keyframes blink{50%{opacity:0}}
+    .ai{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
+    .aura-panel{min-height:390px;position:relative;overflow:hidden;background:radial-gradient(circle at 50% 25%,rgba(110,231,255,.2),transparent 25%),linear-gradient(145deg,#0b1626,#0a0d1a);border:1px solid var(--line);border-radius:var(--radius);padding:30px}
+    .orb{width:130px;height:130px;border-radius:50%;margin:20px auto 35px;background:radial-gradient(circle at 35% 30%,white, #82eaff 20%,#7779ff 50%,transparent 72%);filter:blur(.2px);box-shadow:0 0 70px rgba(110,231,255,.4),0 0 120px rgba(125,100,255,.25);animation:pulse 4s ease-in-out infinite}@keyframes pulse{50%{transform:scale(1.08);box-shadow:0 0 95px rgba(110,231,255,.55),0 0 160px rgba(125,100,255,.35)}}
+    .quote{font-size:24px;letter-spacing:-.03em;text-align:center}.chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:20px}.chip{font-size:12px;color:#c7d4e6;border:1px solid var(--line);background:rgba(255,255,255,.05);border-radius:999px;padding:7px 10px}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+    .stat{padding:30px 20px;border-right:1px solid var(--line)}.stat:last-child{border:0}.stat b{display:block;font-size:30px;letter-spacing:-.05em}.stat span{color:var(--muted);font-size:12px}
+    .build{padding:75px;border:1px solid var(--line);border-radius:34px;text-align:center;background:radial-gradient(circle at 50% 0%,rgba(110,231,255,.13),transparent 38%),rgba(255,255,255,.035)}
+    footer{padding:45px 0 65px;border-top:1px solid var(--line);color:#8091a7;font-size:13px}.footer-row{display:flex;justify-content:space-between;gap:20px}.footer-links{display:flex;gap:18px}
+    .reveal{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s ease}.reveal.show{opacity:1;transform:none}
+    @media(max-width:850px){.links{display:none}.grid{grid-template-columns:1fr 1fr}.architecture,.ai{grid-template-columns:1fr}.window{grid-template-columns:100px 1fr}.cards{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.stat:nth-child(2){border-right:0}.stat:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+    @media(max-width:600px){.wrap{width:min(100% - 28px,var(--max))}.hero{min-height:720px;padding-top:65px}h1{font-size:60px}.desktop{aspect-ratio:1/1}.window{left:4%;right:4%;top:15%;bottom:7%}.grid{grid-template-columns:1fr}.build{padding:40px 22px}.footer-row{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="aurora"></div><div class="grain"></div>
+
+  <nav>
+    <a class="brand" href="#top"><span class="mark"></span><span>DaybreakOS</span></a>
+    <div class="links">
+      <a href="#aurora">Aurora</a><a href="#aura">Aura</a><a href="#stack">Architecture</a><a href="#build">Build</a>
+    </div>
+    <a class="nav-cta" href="https://github.com/Aneek1/daybreakos" target="_blank" rel="noreferrer">GitHub ↗</a>
+  </nav>
+
+  <main id="top">
+    <section class="hero wrap">
+      <div>
+        <span class="eyebrow"><span class="dot"></span> LFS 12.3 · systemd · Wayland</span>
+        <h1><span class="gradient">Linux, rebuilt for the daybreak.</span></h1>
+        <p>DaybreakOS is an LFS-based Linux system with its own native Aurora desktop and an on-device AI assistant that can understand your system and act on it.</p>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/Aneek1/daybreakos" target="_blank" rel="noreferrer">Explore the source ↗</a>
+          <a class="btn secondary" href="#build">How it is built ↓</a>
+        </div>
+
+        <div class="desktop" id="desktop">
+          <div class="bar"><span>◆ Aurora</span><span>Tue 09:41 · Wi-Fi · 72%</span></div>
+          <div class="window">
+            <aside class="side"><b>Aurora</b><div>⌂ Overview</div><div>▦ Apps</div><div>◇ Store</div><div>◈ Aura</div><div>⌘ Terminal</div></aside>
+            <div class="mainwin">
+              <div class="mini-title">Good morning.</div><div class="mini-sub">A quiet desktop, built from the source up.</div>
+              <div class="cards">
+                <div class="mini"><strong>72%</strong><small>CPU</small></div>
+                <div class="mini"><strong>4.8 GB</strong><small>Memory</small></div>
+                <div class="mini"><strong>Online</strong><small>Network</small></div>
+              </div>
+              <div class="mini" style="margin-top:10px;min-height:115px">
+                <strong>Aura</strong><small style="margin-top:8px">Ask your local assistant to open apps, inspect system status, change settings, or chat.</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="aurora">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <div class="kicker">The desktop</div>
+          <h2>Aurora is the interface.</h2>
+          <p class="lead">A native desktop shell written in C with GTK3 and gtk-layer-shell, running over the labwc Wayland compositor. The shell owns the bar, dock, launcher, wallpaper and Aura panel.</p>
+        </div>
+        <div class="grid">
+          <article class="card reveal"><div class="icon">◇</div><h3>Native, not a webpage</h3><p>A real desktop shell compiled for the system — not a browser kiosk pretending to be an OS.</p></article>
+          <article class="card reveal"><div class="icon">▦</div><h3>Apps & Store</h3><p>A searchable launcher and Daybreak Store make installing and launching desktop software feel like part of the system.</p></article>
+          <article class="card reveal"><div class="icon">⌘</div><h3>Wayland first</h3><p>labwc provides the compositor layer while Aurora supplies the native desktop experience above it.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="aura">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <div class="kicker">On-device intelligence</div>
+          <h2>Meet Aura.</h2>
+          <p class="lead">An offline assistant powered by llama.cpp and a bundled Qwen2.5 model. Aura can chat, but it can also control the desktop through the system bridge.</p>
+        </div>
+        <div class="ai">
+          <div class="aura-panel reveal">
+            <div class="orb"></div>
+            <div class="quote">“Ask your computer to do something — and let the system do it.”</div>
+            <div class="chips"><span class="chip">open a terminal</span><span class="chip">system status</span><span class="chip">set brightness to 40</span></div>
+          </div>
+          <div class="card reveal" style="display:flex;flex-direction:column;justify-content:center">
+            <div class="kicker">Designed for local execution</div>
+            <h3 style="font-size:32px;letter-spacing:-.05em;margin-top:10px">Your AI lives with your OS.</h3>
+            <p>Common commands can take deterministic fast paths through <code>aurorad</code>, while open-ended requests are handed to the local model. No cloud account is required for the assistant.</p>
+            <p style="margin-top:22px;color:#c9d7e8">The bundled model is deliberately compact and CPU-friendly. Replace the GGUF model if your hardware can support something larger.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="stack">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <div class="kicker">Under the surface</div>
+          <h2>Built from the source up.</h2>
+          <p class="lead">DaybreakOS follows Linux From Scratch rather than assembling a conventional desktop distribution around an existing environment.</p>
+        </div>
+        <div class="architecture">
+          <div class="stack reveal">
+            <div class="layer"><b>Aurora Shell</b><span>C · GTK3 · gtk-layer-shell</span></div>
+            <div class="layer"><b>Aura</b><span>llama.cpp · Qwen2.5</span></div>
+            <div class="layer"><b>aurorad</b><span>local system bridge</span></div>
+            <div class="layer"><b>labwc</b><span>Wayland compositor</span></div>
+            <div class="layer"><b>LFS 12.3</b><span>systemd base</span></div>
+            <div class="layer"><b>Linux kernel</b><span>target architecture</span></div>
+          </div>
+          <div class="terminal reveal">
+            <div class="termbar"><span class="ball"></span><span class="ball"></span><span class="ball"></span><span style="margin-left:5px">aurora@daybreak</span></div>
+            <div class="termcode">
+              <div><span class="prompt">aurora@daybreak</span>:~$ ./scripts/00-check-host.sh</div>
+              <div><span class="cyan">✓</span> host checks passed</div>
+              <div><span class="prompt">aurora@daybreak</span>:~$ ./scripts/10-aurora-shell.sh</div>
+              <div><span class="cyan">→</span> building Wayland stack</div>
+              <div><span class="cyan">→</span> building aurora-shell</div>
+              <div><span class="cyan">→</span> configuring aurorad</div>
+              <div><span class="purple">→</span> preparing Aura</div>
+              <div><span class="prompt">aurora@daybreak</span>:~$ <span class="cursor"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="stats reveal">
+          <div class="stat"><b>LFS 12.3</b><span>systemd foundation</span></div>
+          <div class="stat"><b>C / GTK3</b><span>native Aurora shell</span></div>
+          <div class="stat"><b>Wayland</b><span>labwc compositor</span></div>
+          <div class="stat"><b>Local AI</b><span>llama.cpp + Qwen2.5</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="build">
+      <div class="wrap">
+        <div class="build reveal">
+          <div class="kicker">Open source</div>
+          <h2>Build your own Daybreak.</h2>
+          <p class="lead" style="max-width:680px;margin:0 auto 28px">The repository contains the build pipeline, system configuration, Aurora desktop, services, Store and tests. Start from the source and make the system yours.</p>
+          <div class="actions" style="margin-bottom:0">
+            <a class="btn primary" href="https://github.com/Aneek1/daybreakos" target="_blank" rel="noreferrer">Open DaybreakOS on GitHub ↗</a>
+            <a class="btn secondary" href="https://github.com/Aneek1/daybreakos#build-order" target="_blank" rel="noreferrer">Read the build order ↗</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-row">
+      <div><strong style="color:#dbe9f7">DaybreakOS</strong> · Linux, rebuilt for the daybreak.</div>
+      <div class="footer-links"><a href="https://github.com/Aneek1/daybreakos">GitHub</a><a href="https://github.com/Aneek1/daybreakos/tree/master/docs">Docs</a><a href="https://github.com/Aneek1/daybreakos/issues">Issues</a></div>
+    </div>
+  </footer>
+
+  <script>
+    const io = new IntersectionObserver(entries => entries.forEach(e => {
+      if(e.isIntersecting) e.target.classList.add('show');
+    }), {threshold:.12});
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+    const desktop = document.getElementById('desktop');
+    window.addEventListener('pointermove', e => {
+      if (!desktop || window.innerWidth < 700) return;
+      const x = (e.clientX / window.innerWidth - .5);
+      const y = (e.clientY / window.innerHeight - .5);
+      desktop.style.transform = `perspective(1300px) rotateX(${4-y*4}deg) rotateY(${x*5}deg)`;
+    });
+  </script>
+</body>
+</html>
