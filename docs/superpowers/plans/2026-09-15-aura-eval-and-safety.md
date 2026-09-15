@@ -824,9 +824,7 @@ def test_typed_power_request_returns_confirmation_and_skips_model(tmp_path):
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `python -m pytest tests/test_aurorad_ask.py -q`
-Expected: `2 failed`
-- The first fails because the registry's `open_app` is fine but `ran` is compared after `/ask`. If it happens to pass, that's acceptable.
-- The second must fail: `/ask` currently runs `_power` instead of returning `confirm`.
+Expected: `1 failed, 1 passed`. `test_ask_runs_system_tool_from_stub_model` already passes, since the registry's `open_app` takes `name`. `test_typed_power_request_returns_confirmation_and_skips_model` fails, because `/ask` currently runs `_power` instead of returning `confirm`.
 
 - [ ] **Step 3: Remove `power` from the registry**
 
@@ -1590,7 +1588,7 @@ with:
 - [ ] **Step 5: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `72 passed`
+Expected: `73 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -1646,23 +1644,29 @@ def latest(name, decoding):
 free, schema = latest("llama-3.2-1b-q4km", "free"), latest("llama-3.2-1b-q4km", "schema")
 fa_f, fa_s = free["false_action_model"]["rate"], schema["false_action_model"]["rate"]
 acc_f, acc_s = free["tool_accuracy_model"]["rate"], schema["tool_accuracy_model"]["rate"]
-print(f"false action: free {fa_f:.3f}, schema {fa_s:.3f}; tool accuracy: free {acc_f:.3f}, schema {acc_s:.3f}")
-print("DECISION:", "schema" if (fa_s < fa_f and acc_s >= acc_f - 0.02) else "free")
+decision = "schema" if (fa_s < fa_f and acc_s >= acc_f - 0.02) else "free"
+summary = (f"false action: free {fa_f:.3f}, schema {fa_s:.3f}; "
+           f"tool accuracy: free {acc_f:.3f}, schema {acc_s:.3f}")
+print(summary)
+print("DECISION:", decision)
+(pathlib.Path.home() / "aura-eval" / "commit-msg.txt").write_text(
+    f"tests: measure free vs schema decoding on Llama-3.2-1B\n\n{summary}\nDecision: {decision}\n",
+    encoding="utf-8", newline="\n")
 PY
 ```
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `72 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `73 passed`). If the decision is `free`, change nothing.
 
-- [ ] **Step 6: Commit** (include the printed decision line in the message body)
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests/results shell/aura_llm.py
-git commit -m "tests: measure free vs schema decoding on Llama-3.2-1B" -m "<paste the two printed lines from Step 4>"
+git commit -F "$HOME/aura-eval/commit-msg.txt"
 ```
 
-The `-m` body is filled with the actual output of Step 4, not left as typed here.
+The message file was written by Step 4 and holds the measured numbers and the decision.
 
 ---
 
@@ -1753,6 +1757,11 @@ print("LoRA follow-up spec needed:", m["false_action_model"]["rate"] > 0.05 or m
 ref = latest("qwen2.5-3b-q4km")
 print(f"reference (not shippable) qwen2.5-3b: tool accuracy {ref['tool_accuracy_model']['rate']}, "
       f"false action {ref['false_action_model']['rate']}")
+lora = m["false_action_model"]["rate"] > 0.05 or m["tool_accuracy_model"]["rate"] < 0.90
+(pathlib.Path.home() / "aura-eval" / "commit-msg.txt").write_text(
+    "Aura: choose the shipped model from the evaluation and publish the results\n\n"
+    f"Decoding: {decoding}\nChosen: {best}\nLoRA follow-up spec needed: {lora}\n",
+    encoding="utf-8", newline="\n")
 PY
 ```
 
@@ -1808,7 +1817,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `72 passed`.
+Then run `python -m pytest tests -q`. Expected: `73 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
@@ -1845,10 +1854,10 @@ PY
 
 ```bash
 git add README.md scripts/02-download-sources.sh scripts/10-aurora-shell.sh shell/aurorad.py shell/aura_llm.py
-git commit -m "Aura: choose the shipped model from the evaluation and publish the results" -m "<paste the CHOSEN and LoRA lines from Step 1>"
+git commit -F "$HOME/aura-eval/commit-msg.txt"
 ```
 
-Unchanged files are simply not staged. As in Task 10, the commit body is the actual Step 1 output.
+`git add` stages nothing for files this task didn't change. The message file was written by Step 1.
 
 - [ ] **Step 9: Report**
 
