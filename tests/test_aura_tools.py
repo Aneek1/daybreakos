@@ -24,3 +24,8 @@ def test_every_tool_has_an_aurorad_executor():
     names = set(re.findall(r'^\s*"(\w+)":', block, re.M))
     for t in TOOLS:
         assert t["name"] in names, f"{t['name']} has no executor in aurorad.py"
+
+def test_every_tool_declares_a_schema_matching_its_args():
+    for t in TOOLS:
+        assert isinstance(t.get("schema"), dict), t["name"]
+        assert set(t["schema"]) == set(t["args"]), t["name"]

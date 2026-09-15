@@ -32,6 +32,33 @@ TOOLS_PATH = os.environ.get("AURA_TOOLS", _default_tools_path())
 LLAMA_URL = os.environ.get("AURA_LLM_URL", "http://127.0.0.1:8080/v1/chat/completions")
 LLAMA_TIMEOUT = float(os.environ.get("AURA_LLM_TIMEOUT", "90"))
 
+# "1" sends a JSON schema so llama-server can only produce {reply, tool_calls}
+# with registry tools; see tests/results for the measurement behind the default.
+SCHEMA_DEFAULT = "0"
+
+def schema_enabled():
+    return os.environ.get("AURA_LLM_SCHEMA", SCHEMA_DEFAULT) == "1"
+
+def response_schema(tools):
+    """JSON schema for llama-server's response_format: a reply plus tool calls
+    restricted to registry tools and their declared argument types."""
+    variants = []
+    for t in tools:
+        props = t.get("schema", {})
+        variants.append({
+            "type": "object",
+            "properties": {
+                "cmd": {"const": t["name"]},
+                "args": {"type": "object", "properties": props,
+                         "required": sorted(props), "additionalProperties": False},
+            },
+            "required": ["cmd", "args"],
+        })
+    calls = {"type": "array", "items": {"anyOf": variants}} if variants else {"type": "array", "maxItems": 0}
+    return {"type": "object",
+            "properties": {"reply": {"type": "string"}, "tool_calls": calls},
+            "required": ["reply", "tool_calls"]}
+
 def load_tools(path=None):
     """Load the tool registry; return [] if it can't be read so /ask never 500s."""
     try:
@@ -40,23 +67,30 @@ def load_tools(path=None):
     except (OSError, ValueError):
         return []
 
-def build_prompt(tools, user_text):
+def build_prompt(tools, user_text, schema_mode=False):
     lines = []
     for t in tools:
         args = ", ".join(f"{k} ({v})" for k, v in t["args"].items()) or "none"
         lines.append(f'- {t["name"]}: {t["description"]} args: {args}')
-    system = (
+    example = '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
+    intro = (
         "You are Aura, the friendly on-device AI assistant built into DaybreakOS, a "
         "Linux desktop. You run entirely on the user's own device — no cloud. "
         "Chat naturally and helpfully, and keep answers concise (1-3 sentences "
         "unless the user asks for more).\n"
-        "Only when the user clearly asks you to perform a desktop action, reply with "
-        "a single JSON object and nothing else, for example:\n"
-        '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        "Available actions:\n" + "\n".join(lines) + "\n"
-        "Use only these actions with these args; never invent them. For ordinary "
-        "conversation, questions, or explanations, just answer in plain text."
     )
+    if schema_mode:
+        rule = ("Always reply with one JSON object that has a \"reply\" string and a \"tool_calls\" "
+                "list. Leave tool_calls empty for ordinary conversation, questions, or explanations. "
+                "Add a tool call only when the user clearly asks you to perform a desktop action, "
+                "for example:\n")
+        closing = "Use only these actions with these args; never invent them."
+    else:
+        rule = ("Only when the user clearly asks you to perform a desktop action, reply with "
+                "a single JSON object and nothing else, for example:\n")
+        closing = ("Use only these actions with these args; never invent them. For ordinary "
+                   "conversation, questions, or explanations, just answer in plain text.")
+    system = intro + rule + example + "Available actions:\n" + "\n".join(lines) + "\n" + closing
     return system, user_text
 
 def _json_candidates(text):
@@ -191,15 +225,17 @@ def _reply_is_bad(reply):
         return True
     return False
 
-def call_llama(system, user):
+def call_llama(system, user, schema=None):
     """POST to llama-server; return assistant content or None on any failure."""
-    body = json.dumps({
+    payload = {
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": user}],
         "temperature": 0.2,
         "max_tokens": 128,
-    }).encode()
-    req = urllib.request.Request(LLAMA_URL, data=body,
+    }
+    if schema is not None:
+        payload["response_format"] = {"type": "json_schema", "json_schema": {"schema": schema}}
+    req = urllib.request.Request(LLAMA_URL, data=json.dumps(payload).encode(),
                                  headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=LLAMA_TIMEOUT) as r:
@@ -215,8 +251,9 @@ def ask(user_text, executors=None, status=None, tools=None):
     {'a': str, 'actions': [...]}. Falls back to heuristics if the model fails."""
     executors = executors or {}
     tools = tools if tools is not None else load_tools()
-    system, user = build_prompt(tools, user_text)
-    raw = call_llama(system, user)
+    schema = response_schema(tools) if schema_enabled() else None
+    system, user = build_prompt(tools, user_text, schema_mode=schema is not None)
+    raw = call_llama(system, user, schema=schema)
     if raw is None:
         return {"a": heuristic_fallback(user_text, status), "actions": []}
     parsed = parse_model_output(raw)

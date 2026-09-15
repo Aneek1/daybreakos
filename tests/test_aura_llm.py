@@ -110,28 +110,28 @@ def _tools(): return aura_llm.load_tools()
 
 def test_ask_happy_path_executes_and_returns_actions(monkeypatch):
     monkeypatch.setattr(aura_llm, "call_llama",
-        lambda s, u: '{"reply":"Opening Files.","tool_calls":[{"cmd":"open_app","args":{"name":"files"}}]}')
+        lambda s, u, schema=None: '{"reply":"Opening Files.","tool_calls":[{"cmd":"open_app","args":{"name":"files"}}]}')
     out = aura_llm.ask("open files", executors={"open_app": lambda a: None}, status={})
     assert out["actions"] == [{"cmd": "open_app", "args": {"name": "files"}, "ran": True}]
     assert "Opening Files" in out["a"]
 
 def test_ask_merges_system_notes_into_reply(monkeypatch):
     monkeypatch.setattr(aura_llm, "call_llama",
-        lambda s, u: '{"reply":"Done.","tool_calls":[{"cmd":"set_brightness","args":{"percent":40}}]}')
+        lambda s, u, schema=None: '{"reply":"Done.","tool_calls":[{"cmd":"set_brightness","args":{"percent":40}}]}')
     execs = {"set_brightness": lambda a: "brightness set to 40%"}
     out = aura_llm.ask("set brightness to 40", executors=execs, status={})
     assert out["actions"][0]["ran"] is True
     assert "brightness set to 40%" in out["a"]
 
 def test_ask_falls_back_when_model_down(monkeypatch):
-    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u: None)
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u, schema=None: None)
     out = aura_llm.ask("what's my battery",
                        executors={}, status={"battery": {"percent": 55, "status": "Full"}})
     assert "55%" in out["a"]
     assert out["actions"] == []
 
 def test_ask_falls_back_on_garbage(monkeypatch):
-    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u: "%%% not json %%%")
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u, schema=None: "%%% not json %%%")
     out = aura_llm.ask("hello", executors={}, status={})
     assert out["actions"] == []
     assert out["a"]  # non-empty prose (the model's own text)
@@ -171,3 +171,65 @@ def test_call_llama_returns_none_on_non_dict_json(monkeypatch):
         def __exit__(self, *a): return False
     monkeypatch.setattr(aura_llm.urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
     assert aura_llm.call_llama("SYS", "hello") is None
+
+def test_response_schema_limits_commands_and_argument_types():
+    schema = aura_llm.response_schema(aura_llm.load_tools())
+    variants = schema["properties"]["tool_calls"]["items"]["anyOf"]
+    names = {v["properties"]["cmd"]["const"] for v in variants}
+    assert names == {t["name"] for t in aura_llm.load_tools()}
+    assert "power" not in names
+    brightness = next(v for v in variants if v["properties"]["cmd"]["const"] == "set_brightness")
+    assert brightness["properties"]["args"]["properties"]["percent"] == {"type": "integer", "minimum": 0, "maximum": 100}
+    assert brightness["properties"]["args"]["additionalProperties"] is False
+    assert schema["required"] == ["reply", "tool_calls"]
+
+def test_response_schema_without_tools_allows_no_calls():
+    assert aura_llm.response_schema([])["properties"]["tool_calls"] == {"type": "array", "maxItems": 0}
+
+def test_free_prompt_is_unchanged():
+    tools = [{"name": "open_terminal", "side": "system", "description": "Open a terminal.", "args": {}}]
+    system, _ = aura_llm.build_prompt(tools, "x")
+    assert system == (
+        "You are Aura, the friendly on-device AI assistant built into DaybreakOS, a "
+        "Linux desktop. You run entirely on the user's own device — no cloud. "
+        "Chat naturally and helpfully, and keep answers concise (1-3 sentences "
+        "unless the user asks for more).\n"
+        "Only when the user clearly asks you to perform a desktop action, reply with "
+        "a single JSON object and nothing else, for example:\n"
+        '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
+        "Available actions:\n- open_terminal: Open a terminal. args: none\n"
+        "Use only these actions with these args; never invent them. For ordinary "
+        "conversation, questions, or explanations, just answer in plain text.")
+
+def test_schema_prompt_asks_for_json_every_time():
+    system, _ = aura_llm.build_prompt(aura_llm.load_tools(), "x", schema_mode=True)
+    assert "Always reply with one JSON object" in system
+    assert "just answer in plain text" not in system
+
+def test_call_llama_sends_response_format_only_with_schema(monkeypatch):
+    bodies = []
+    class FakeResp:
+        def read(self): return b'{"choices":[{"message":{"content":"{}"}}]}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen",
+                        lambda req, timeout=None: bodies.append(aura_llm.json.loads(req.data)) or FakeResp())
+    aura_llm.call_llama("S", "U")
+    aura_llm.call_llama("S", "U", schema={"type": "object"})
+    assert "response_format" not in bodies[0]
+    assert bodies[1]["response_format"] == {"type": "json_schema", "json_schema": {"schema": {"type": "object"}}}
+
+def test_ask_uses_schema_only_when_enabled(monkeypatch):
+    seen = []
+    monkeypatch.setattr(aura_llm, "call_llama",
+                        lambda s, u, schema=None: seen.append((s, schema)) or '{"reply": "Hi.", "tool_calls": []}')
+    monkeypatch.setenv("AURA_LLM_SCHEMA", "0")
+    aura_llm.ask("hello", executors={}, status={})
+    monkeypatch.setenv("AURA_LLM_SCHEMA", "1")
+    aura_llm.ask("hello", executors={}, status={})
+    assert seen[0][1] is None and "plain text" in seen[0][0]
+    assert seen[1][1]["required"] == ["reply", "tool_calls"] and "Always reply with one JSON object" in seen[1][0]
+
+def test_schema_default(monkeypatch):
+    monkeypatch.delenv("AURA_LLM_SCHEMA", raising=False)
+    assert aura_llm.schema_enabled() is (aura_llm.SCHEMA_DEFAULT == "1")
