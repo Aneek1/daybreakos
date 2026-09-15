@@ -66,6 +66,25 @@ def test_foreign_host_is_refused(port):
         assert _post(port, {"Host": host, "Content-Type": JSON})[0] == 403, host
 
 
+def _get(port, host, path="/system/aura-status"):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.putrequest("GET", path, skip_host=True, skip_accept_encoding=True)
+    conn.putheader("Host", host)
+    conn.endheaders()
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    return resp.status
+
+
+def test_get_with_foreign_host_is_refused(port):
+    # A DNS-rebinding page is same-origin under its own domain, so it could read GET replies.
+    for host in ("attacker.example", f"attacker.example:{port}"):
+        assert _get(port, host) == 403, host
+        assert _get(port, host, "/files?path=~") == 403, host
+    assert _get(port, f"127.0.0.1:{port}") == 200
+
+
 def test_refusal_happens_before_the_body_is_read(port):
     status, _ = _post(port, {"Host": "127.0.0.1", "Content-Type": "text/plain", "Origin": "null"}, body=b"not json")
     assert status == 403

@@ -733,18 +733,24 @@ def aura_status():
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
 
+def foreign_host(headers):
+    """True unless Host names this machine. A DNS-rebinding page reaches 127.0.0.1 under its
+    own domain, is same-origin there, and so could read GET replies; its Host gives it away."""
+    host = (headers.get("Host") or "").strip().lower()
+    if not host.endswith("]"):
+        host = host.rsplit(":", 1)[0]
+    return host not in LOCAL_HOSTS
+
+
 def browser_request(headers):
-    """True if a web page could have sent this request. Browsers add Origin to cross-origin
+    """True if a web page could have sent this POST. Browsers add Origin to cross-origin
     POSTs, can't send a JSON Content-Type cross-origin without a preflight (refused below),
     and a DNS-rebinding page arrives with its own Host. The native shell, the settings app
     and the daybreak CLI send JSON, no Origin, and Host 127.0.0.1."""
     if headers.get("Origin") is not None:
         return True
     ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
-    host = (headers.get("Host") or "").strip().lower()
-    if not host.endswith("]"):
-        host = host.rsplit(":", 1)[0]
-    return ctype != "application/json" or host not in LOCAL_HOSTS
+    return ctype != "application/json" or foreign_host(headers)
 
 
 class H(BaseHTTPRequestHandler):
@@ -761,6 +767,8 @@ class H(BaseHTTPRequestHandler):
     def do_OPTIONS(self): self._send({"error": "cross-origin requests are not allowed"}, 403)
 
     def do_GET(self):
+        if foreign_host(self.headers):
+            return self._send({"error": "requests from web pages are not allowed"}, 403)
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
         if url.path == "/status":
