@@ -85,7 +85,7 @@ One JSON object per line, with `say`, `expect` and optional `args`. It replaces 
   - bad-reply rate (`_reply_is_bad`)
   - wall-clock latency p50 and p95
   - per-tool model and pipeline accuracy, and how many correct model calls the `_ACTION_CUE` keyword gate dropped (some realistic requests contain no action word, so pipeline accuracy is capped below model accuracy)
-  - replies stating system facts without a tool call (digits plus battery, uptime or network words; a heuristic for invented readings, which `bad_reply` cannot see)
+  - replies stating system facts without a tool call (digits plus battery, uptime or network words; a heuristic for invented readings, which `bad_reply` cannot see; scored on the model's own reply and tool calls, since the pipeline's fallback reply quotes the harness's fake status)
 - **Conditions:** `--model <gguf>` and `--decoding free|schema`. The server is started by the caller, and the harness records the server's reported model path.
 - **Output:** `tests/results/aura-eval-<date>-<model>-<decoding>.json`, with the date, git commit, host CPU, model file SHA-256, llama.cpp tag, every case's raw output and the metrics. `--summary` prints a table from all result files. Requests that fail at the server are counted separately and excluded from every rate; a run with any failed request, or one that would overwrite an existing results file, is not saved.
 - **Replaces `tests/test_aura_llm_live.sh`** (its quoting bug goes with it).

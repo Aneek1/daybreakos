@@ -1980,7 +1980,7 @@ git commit -m "Aura: optional schema-constrained output (AURA_LLM_SCHEMA, off by
 
 ### Task 9b: Harness: flag system facts stated without a tool call
 
-The baseline showed the model answering "how much battery is left" with invented readings ("Battery level: 100%") instead of calling `system_status`. `bad_reply` can't see that, so this adds a narrow heuristic metric before Tasks 10-12 measure anything.
+The baseline showed the model answering "how much battery is left" with invented readings ("Battery level: 100%") instead of calling `system_status`. `bad_reply` can't see that, so this adds a narrow heuristic metric before Tasks 10-12 measure anything. It scores the model's own parsed reply and tool calls, not `ask()`'s output: `ask()` replaces an empty or placeholder reply with `heuristic_fallback`, which quotes the harness's `FAKE_STATUS` ("Battery is at 80%") and would count as invented readings.
 
 **Files:**
 - Modify: `tests/aura_eval.py`, `tests/test_aura_eval.py`
@@ -1999,6 +1999,16 @@ def test_system_facts_without_tool_flags_invented_readings():
     row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Battery level: 100%"}'))
     assert row["system_facts_without_tool"] is True
 
+def test_system_facts_scores_the_model_not_the_fallback():
+    # ask() fills an empty or placeholder reply from the harness's own FAKE_STATUS; the model invented nothing
+    battery = {"say": "how much battery is left", "kind": "tool", "expect": "system_status"}
+    brightness = {"say": "what's the brightness", "kind": "negative", "expect": "none"}
+    for case, raw in [(battery, '{"reply": ""}'), (battery, '{"reply": "<short confirmation>"}'),
+                      (battery, '{"tool_calls": [{"cmd": "system_status"}], "reply": ""}'),
+                      (brightness, '{"reply": ""}')]:
+        row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(raw))
+        assert row["system_facts_without_tool"] is False, (case["say"], raw, row["reply"])
+
 def test_table_reads_results_recorded_before_the_system_facts_metric():
     m = aura_eval.summarize([{"kind": "negative", "expect": "none", "server_error": False, "latency_ms": 1.0,
                               "model_false_action": False, "pipeline_false_action": False, "bad_reply": False}])
@@ -2010,7 +2020,7 @@ def test_table_reads_results_recorded_before_the_system_facts_metric():
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `python -m pytest tests/test_aura_eval.py -q`
-Expected: `2 failed, 12 passed` (`AttributeError: module 'aura_eval' has no attribute 'states_system_facts'`, and `KeyError: 'system_facts_without_tool'`)
+Expected: `3 failed, 12 passed` (`AttributeError: module 'aura_eval' has no attribute 'states_system_facts'`, and `KeyError: 'system_facts_without_tool'` twice)
 
 - [ ] **Step 3: Edit `tests/aura_eval.py`**
 
@@ -2020,11 +2030,12 @@ Expected: `2 failed, 12 passed` (`AttributeError: module 'aura_eval' has no attr
 SYSTEM_WORDS = ("battery", "uptime", "network", "mbps", "brightness", "cpu", "memory")
 
 
-def states_system_facts(reply, actions):
-    """True if a reply quotes numbers about the machine although no tool ran. A heuristic:
-    it catches invented readings such as 'Battery: 92%', and can also flag harmless replies."""
+def states_system_facts(reply, tool_calls):
+    """True if a reply quotes numbers about the machine although the model called no tool. A heuristic:
+    it catches invented readings such as 'Battery: 92%', and can also flag harmless replies.
+    Pass the model's own reply and tool calls, not ask()'s: its fallback fills bad replies from status."""
     text = (reply or "").lower()
-    return not actions and any(ch.isdigit() for ch in text) and any(word in text for word in SYSTEM_WORDS)
+    return not tool_calls and any(ch.isdigit() for ch in text) and any(word in text for word in SYSTEM_WORDS)
 
 
 ```
@@ -2039,7 +2050,7 @@ with
 
 ```python
         "reply": out["a"], "bad_reply": llm._reply_is_bad(out["a"]),
-        "system_facts_without_tool": states_system_facts(out["a"], out["actions"]),
+        "system_facts_without_tool": states_system_facts(parsed["reply"], parsed["tool_calls"]),
 ```
 
 3. In `summarize`, replace
@@ -2077,10 +2088,10 @@ with
 - [ ] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_aura_eval.py -q`
-Expected: `14 passed`
+Expected: `15 passed`
 
 Run: `python -m pytest tests -q`
-Expected: `106 passed`
+Expected: `107 passed`
 
 Run: `python tests/aura_eval.py --summary`
 Expected: the baseline row prints with `-` under "system facts, no tool".
@@ -2163,7 +2174,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `106 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `107 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -2332,7 +2343,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `106 passed`.
+Then run `python -m pytest tests -q`. Expected: `107 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
