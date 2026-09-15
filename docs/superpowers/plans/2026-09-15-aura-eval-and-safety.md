@@ -235,7 +235,7 @@ def test_correct_tool_case():
     case = {"say": "set brightness to 40", "kind": "tool", "expect": "set_brightness", "args": {"percent": 40}}
     raw = '{"reply": "Done.", "tool_calls": [{"cmd": "set_brightness", "args": {"percent": 40}}]}'
     row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(raw))
-    assert row["model_correct"] and row["pipeline_correct"] and row["args_correct"] and row["valid_json"]
+    assert row["model_correct"] and row["pipeline_correct"] and row["args_correct"] and row["valid_response_json"]
     assert row["bad_reply"] is False
 
 def test_invented_action_on_chit_chat_counts_at_model_level_only():
@@ -249,7 +249,7 @@ def test_server_error_row():
     case = {"say": "open a terminal", "kind": "tool", "expect": "open_terminal"}
     row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(None))
     assert row["server_error"] is True
-    assert row["model_correct"] is False and row["valid_json"] is False
+    assert row["model_correct"] is False and row["valid_response_json"] is False
 
 def test_call_llama_restored_after_case():
     original = aura_llm.call_llama
@@ -260,9 +260,9 @@ def test_call_llama_restored_after_case():
 def test_summarize_and_table():
     rows = [
         {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 100.0,
-         "model_correct": True, "pipeline_correct": True, "valid_json": True, "bad_reply": False},
+         "model_correct": True, "pipeline_correct": True, "valid_response_json": True, "bad_reply": False},
         {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 300.0,
-         "model_correct": False, "pipeline_correct": False, "valid_json": False, "bad_reply": True},
+         "model_correct": False, "pipeline_correct": False, "valid_response_json": False, "bad_reply": True},
         {"kind": "negative", "server_error": False, "latency_ms": 200.0, "model_false_action": True,
          "pipeline_false_action": False, "bad_reply": False},
     ]
@@ -285,9 +285,9 @@ def test_gate_dropped_calls_and_per_tool_table():
     # a correct model call that the keyword gate dropped, and one it kept
     rows = [
         {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 1.0,
-         "model_correct": True, "pipeline_correct": False, "valid_json": True, "bad_reply": False},
+         "model_correct": True, "pipeline_correct": False, "valid_response_json": True, "bad_reply": False},
         {"kind": "tool", "expect": "open_terminal", "server_error": False, "latency_ms": 1.0,
-         "model_correct": True, "pipeline_correct": True, "valid_json": True, "bad_reply": False},
+         "model_correct": True, "pipeline_correct": True, "valid_response_json": True, "bad_reply": False},
     ]
     m = aura_eval.summarize(rows)
     assert m["gate_dropped_correct_calls"] == 1
@@ -296,6 +296,32 @@ def test_gate_dropped_calls_and_per_tool_table():
     assert table.splitlines()[0] == "| model | decoding | tool | cases | model correct | pipeline correct |"
     assert "| m | free | system_status | 1 | 1 | 0 |" in table
     assert aura_eval.format_tool_table([]) == "no per-tool results"
+
+def test_server_errors_count_neither_right_nor_wrong():
+    rows = [
+        {"kind": "negative", "expect": "none", "server_error": True, "latency_ms": 0.0,
+         "model_false_action": False, "pipeline_false_action": False, "bad_reply": False},
+        {"kind": "negative", "expect": "none", "server_error": False, "latency_ms": 5.0,
+         "model_false_action": True, "pipeline_false_action": False, "bad_reply": False},
+        {"kind": "tool", "expect": "list_apps", "server_error": True, "latency_ms": 0.0,
+         "model_correct": False, "pipeline_correct": False, "valid_response_json": False, "bad_reply": True},
+    ]
+    m = aura_eval.summarize(rows)
+    assert m["server_errors"] == 2
+    assert m["false_action_model"] == {"count": 1, "total": 1, "rate": 1.0}
+    assert m["tool_accuracy_model"] == {"count": 0, "total": 0, "rate": None}
+    assert m["by_tool"] == {}
+
+def test_results_problem_refuses_failed_requests_and_overwrites(tmp_path):
+    out = tmp_path / "aura-eval-x.json"
+    assert "1 of 3 requests failed" in aura_eval.results_problem({"server_errors": 1, "cases": 3}, out)
+    assert aura_eval.results_problem({"server_errors": 0, "cases": 3}, out) is None
+    out.write_text("{}", encoding="utf-8")
+    assert "already exists" in aura_eval.results_problem({"server_errors": 0, "cases": 3}, out)
+
+def test_health_url_ignores_the_path():
+    assert aura_eval.health_url("http://127.0.0.1:8080/v1/chat/completions") == "http://127.0.0.1:8080/health"
+    assert aura_eval.health_url("http://localhost:9000/proxy/chat") == "http://localhost:9000/health"
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -316,7 +342,7 @@ Needs a running llama-server (see Task 3 of docs/superpowers/plans/2026-09-15-au
   python tests/aura_eval.py --model-name llama-3.2-1b-q4km --model-file PATH --decoding free
   python tests/aura_eval.py --summary [--markdown]
 """
-import argparse, hashlib, json, os, platform, subprocess, sys, time, urllib.request
+import argparse, hashlib, json, os, platform, subprocess, sys, time, urllib.parse, urllib.request
 from datetime import date
 from pathlib import Path
 
@@ -350,7 +376,9 @@ def args_match(expected, actual):
     return True
 
 
-def valid_tool_json(llm, raw):
+def valid_response_json(llm, raw):
+    """True if the output holds a JSON object shaped like Aura's response (reply and/or
+    tool_calls), whether or not it calls a tool."""
     for candidate in llm._json_candidates(raw or ""):
         try:
             obj = json.loads(candidate)
@@ -398,7 +426,7 @@ def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
     if case["kind"] == "tool":
         row["model_correct"] = row["model_cmd"] == case["expect"]
         row["pipeline_correct"] = row["pipeline_cmd"] == case["expect"]
-        row["valid_json"] = valid_tool_json(llm, raw)
+        row["valid_response_json"] = valid_response_json(llm, raw)
         if "args" in case:
             row["args_correct"] = row["model_correct"] and args_match(case["args"], row["model_args"] or {})
     else:
@@ -408,7 +436,8 @@ def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
 
 
 def _rate(rows, key):
-    values = [bool(r[key]) for r in rows if key in r]
+    # A server error says nothing about the model, so those rows count neither way.
+    values = [bool(r[key]) for r in rows if key in r and not r["server_error"]]
     count = sum(values)
     return {"count": count, "total": len(values), "rate": round(count / len(values), 4) if values else None}
 
@@ -417,13 +446,14 @@ def _percentile(values, pct):
     if not values:
         return None
     ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, round(pct / 100 * (len(ordered) - 1)))]
+    # nearest rank, rounding halves up (round() would send 0.5 to 0)
+    return ordered[min(len(ordered) - 1, int(pct / 100 * (len(ordered) - 1) + 0.5))]
 
 
 def _by_tool(rows):
     tools = {}
     for r in rows:
-        if r["kind"] != "tool":
+        if r["kind"] != "tool" or r["server_error"]:
             continue
         entry = tools.setdefault(r["expect"], {"cases": 0, "model_correct": 0, "pipeline_correct": 0})
         entry["cases"] += 1
@@ -442,7 +472,7 @@ def summarize(rows):
         "args_accuracy_model": _rate(rows, "args_correct"),
         "false_action_model": _rate(rows, "model_false_action"),
         "false_action_pipeline": _rate(rows, "pipeline_false_action"),
-        "valid_json_on_tool_cases": _rate(rows, "valid_json"),
+        "valid_response_json_on_tool_cases": _rate(rows, "valid_response_json"),
         "bad_reply": _rate(rows, "bad_reply"),
         "latency_ms_p50": _percentile(latencies, 50),
         "latency_ms_p95": _percentile(latencies, 95),
@@ -454,7 +484,8 @@ def summarize(rows):
 
 
 HEADER = ["model", "decoding", "date", "tool acc (model)", "tool acc (pipeline)", "args acc",
-          "false action (model)", "false action (pipeline)", "valid JSON", "bad reply", "p50 ms", "p95 ms"]
+          "false action (model)", "false action (pipeline)", "valid response JSON", "bad reply", "p50 ms",
+          "p95 ms"]
 
 
 def _pct(metric):
@@ -476,7 +507,7 @@ def format_table(results, markdown):
         rows.append([meta["model_name"], meta["decoding"], meta["date"],
                      _pct(m["tool_accuracy_model"]), _pct(m["tool_accuracy_pipeline"]),
                      _pct(m["args_accuracy_model"]), _pct(m["false_action_model"]),
-                     _pct(m["false_action_pipeline"]), _pct(m["valid_json_on_tool_cases"]),
+                     _pct(m["false_action_pipeline"]), _pct(m["valid_response_json_on_tool_cases"]),
                      _pct(m["bad_reply"]), _ms(m["latency_ms_p50"]), _ms(m["latency_ms_p95"])])
     if markdown:
         lines = ["| " + " | ".join(HEADER) + " |", "|" + "---|" * len(HEADER)]
@@ -516,12 +547,27 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+def health_url(chat_url):
+    parts = urllib.parse.urlsplit(chat_url)
+    return f"{parts.scheme}://{parts.netloc}/health"
+
+
 def server_ready(chat_url):
     try:
-        with urllib.request.urlopen(chat_url.split("/v1/")[0] + "/health", timeout=5) as response:
+        with urllib.request.urlopen(health_url(chat_url), timeout=5) as response:
             return response.status == 200
     except OSError:
         return False
+
+
+def results_problem(metrics, out_path):
+    """Why a finished run must not be saved, or None."""
+    if metrics["server_errors"]:
+        return (f"{metrics['server_errors']} of {metrics['cases']} requests failed; check the "
+                "llama-server log and rerun (not writing a results file)")
+    if out_path.exists():
+        return f"{out_path.name} already exists; delete it deliberately or use a different --model-name"
+    return None
 
 
 def run(args):
@@ -543,8 +589,6 @@ def run(args):
               flush=True)
 
     metrics = summarize(rows)
-    if metrics["server_errors"] == len(rows):
-        sys.exit("every request failed; check the llama-server log (not writing a results file)")
     result = {
         "meta": {
             "date": date.today().isoformat(), "model_name": args.model_name,
@@ -563,8 +607,12 @@ def run(args):
         print(format_table([result], markdown=False))
         print("(--limit run: not writing a results file)")
         return
-    RESULTS_DIR.mkdir(exist_ok=True)
     out = RESULTS_DIR / f"aura-eval-{result['meta']['date']}-{args.model_name}-{args.decoding}.json"
+    problem = results_problem(metrics, out)
+    if problem:
+        print(format_table([result], markdown=False))
+        sys.exit(problem)
+    RESULTS_DIR.mkdir(exist_ok=True)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {out.relative_to(ROOT)}")
     print(format_table([result], markdown=False))
@@ -601,7 +649,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `python -m pytest tests/test_aura_eval.py -q`
-Expected: `9 passed`
+Expected: `12 passed`
 
 - [ ] **Step 5: Remove the old live fixture and script**
 
@@ -612,7 +660,7 @@ git rm -q tests/aura_intents.jsonl tests/test_aura_llm_live.sh
 - [ ] **Step 6: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `9 failed, 36 passed` (the 9 failures are the pre-existing ones fixed in Tasks 5-6)
+Expected: `9 failed, 39 passed` (the 9 failures are the pre-existing ones fixed in Tasks 5-6)
 
 - [ ] **Step 7: Commit**
 
@@ -971,7 +1019,7 @@ Expected: only the `/system/power` and `/power` endpoint handlers (the `subproce
 - [ ] **Step 7: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `5 failed, 61 passed`. The remaining failures are:
+Expected: `5 failed, 64 passed`. The remaining failures are:
 - `test_build_prompt_lists_tools_and_forbids_invention`
 - `test_route_defers_ui_tool_unrun`
 - `test_ask_happy_path_executes_and_returns_actions`
@@ -1048,7 +1096,7 @@ def test_every_tool_has_an_aurorad_executor():
 - [ ] **Step 3: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `66 passed`
+Expected: `69 passed`
 
 - [ ] **Step 4: Commit**
 
@@ -1320,7 +1368,7 @@ Expected: `aurora-shell built: ...`, then `no new warnings`. Line numbers are st
 - [ ] **Step 7: Run the Python suite (unchanged by this task)**
 
 Run: `python -m pytest tests -q`
-Expected: `66 passed`
+Expected: `69 passed`
 
 - [ ] **Step 8: Commit**
 
@@ -1643,7 +1691,7 @@ with:
 - [ ] **Step 5: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `74 passed`
+Expected: `77 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -1712,7 +1760,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `74 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `77 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -1872,7 +1920,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `74 passed`.
+Then run `python -m pytest tests -q`. Expected: `77 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 

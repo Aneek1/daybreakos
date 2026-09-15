@@ -81,12 +81,12 @@ One JSON object per line, with `say`, `expect` and optional `args`. It replaces 
   - tool accuracy on tool cases (right `cmd`)
   - argument accuracy on tool cases with args
   - false-action rate on negative and power cases (any tool call)
-  - valid-JSON rate when a tool was expected
+  - valid response-JSON rate on tool cases (a JSON object shaped like Aura's response, whether or not it calls a tool)
   - bad-reply rate (`_reply_is_bad`)
   - wall-clock latency p50 and p95
   - per-tool model and pipeline accuracy, and how many correct model calls the `_ACTION_CUE` keyword gate dropped (some realistic requests contain no action word, so pipeline accuracy is capped below model accuracy)
 - **Conditions:** `--model <gguf>` and `--decoding free|schema`. The server is started by the caller, and the harness records the server's reported model path.
-- **Output:** `tests/results/aura-eval-<date>-<model>-<decoding>.json`, with the date, git commit, host CPU, model file SHA-256, llama.cpp tag, every case's raw output and the metrics. `--summary` prints a table from all result files.
+- **Output:** `tests/results/aura-eval-<date>-<model>-<decoding>.json`, with the date, git commit, host CPU, model file SHA-256, llama.cpp tag, every case's raw output and the metrics. `--summary` prints a table from all result files. Requests that fail at the server are counted separately and excluded from every rate; a run with any failed request, or one that would overwrite an existing results file, is not saved.
 - **Replaces `tests/test_aura_llm_live.sh`** (its quoting bug goes with it).
 
 ### 4.3 Measuring setup
