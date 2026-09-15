@@ -84,13 +84,18 @@ def test_expectations_are_valid():
             assert c["expect"] == "none", c
 
 def test_argument_cases():
-    cases = _cases()
-    assert all(c["args"]["name"] for c in cases if c["expect"] == "open_app")
-    assert all(isinstance(c["args"]["percent"], int) for c in cases if c["expect"] == "set_brightness")
+    for c in _cases():
+        if c["expect"] == "open_app":
+            assert c.get("args", {}).get("name"), c
+        if c["expect"] == "set_brightness":
+            assert isinstance(c.get("args", {}).get("percent"), int), c
 
 def test_no_duplicate_utterances():
-    says = [c["say"].lower() for c in _cases()]
-    assert len(says) == len(set(says))
+    seen = set()
+    for c in _cases():
+        say = c["say"].lower()
+        assert say not in seen, c
+        seen.add(say)
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -126,7 +131,7 @@ Expected: 5 failed (`FileNotFoundError` for `aura_eval_cases.jsonl`)
 {"say": "what software is on this computer", "kind": "tool", "expect": "list_apps"}
 {"say": "lsit my apps", "kind": "tool", "expect": "list_apps"}
 {"say": "show the app list", "kind": "tool", "expect": "list_apps"}
-{"say": "what can i run here", "kind": "tool", "expect": "list_apps"}
+{"say": "can you list all my apps", "kind": "tool", "expect": "list_apps"}
 {"say": "how is the system doing", "kind": "tool", "expect": "system_status"}
 {"say": "what's my uptime", "kind": "tool", "expect": "system_status"}
 {"say": "is the network up", "kind": "tool", "expect": "system_status"}
@@ -254,10 +259,10 @@ def test_call_llama_restored_after_case():
 
 def test_summarize_and_table():
     rows = [
-        {"kind": "tool", "server_error": False, "latency_ms": 100.0, "model_correct": True,
-         "pipeline_correct": True, "valid_json": True, "bad_reply": False},
-        {"kind": "tool", "server_error": False, "latency_ms": 300.0, "model_correct": False,
-         "pipeline_correct": False, "valid_json": False, "bad_reply": True},
+        {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 100.0,
+         "model_correct": True, "pipeline_correct": True, "valid_json": True, "bad_reply": False},
+        {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 300.0,
+         "model_correct": False, "pipeline_correct": False, "valid_json": False, "bad_reply": True},
         {"kind": "negative", "server_error": False, "latency_ms": 200.0, "model_false_action": True,
          "pipeline_false_action": False, "bad_reply": False},
     ]
@@ -266,6 +271,8 @@ def test_summarize_and_table():
     assert m["false_action_model"] == {"count": 1, "total": 1, "rate": 1.0}
     assert m["args_accuracy_model"] == {"count": 0, "total": 0, "rate": None}
     assert m["latency_ms_p50"] == 200.0 and m["latency_ms_p95"] == 300.0
+    assert m["by_tool"] == {"system_status": {"cases": 2, "model_correct": 1, "pipeline_correct": 1}}
+    assert m["gate_dropped_correct_calls"] == 0
     result = {"meta": {"model_name": "m", "decoding": "free", "date": "2026-09-15"}, "metrics": m}
     table = aura_eval.format_table([result], markdown=True)
     assert table.splitlines()[0].startswith("| model | decoding | date |")
@@ -273,6 +280,22 @@ def test_summarize_and_table():
 
 def test_format_table_no_results():
     assert aura_eval.format_table([], markdown=False) == "no results"
+
+def test_gate_dropped_calls_and_per_tool_table():
+    # a correct model call that the keyword gate dropped, and one it kept
+    rows = [
+        {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 1.0,
+         "model_correct": True, "pipeline_correct": False, "valid_json": True, "bad_reply": False},
+        {"kind": "tool", "expect": "open_terminal", "server_error": False, "latency_ms": 1.0,
+         "model_correct": True, "pipeline_correct": True, "valid_json": True, "bad_reply": False},
+    ]
+    m = aura_eval.summarize(rows)
+    assert m["gate_dropped_correct_calls"] == 1
+    result = {"meta": {"model_name": "m", "decoding": "free", "date": "2026-09-15"}, "metrics": m}
+    table = aura_eval.format_tool_table([result])
+    assert table.splitlines()[0] == "| model | decoding | tool | cases | model correct | pipeline correct |"
+    assert "| m | free | system_status | 1 | 1 | 0 |" in table
+    assert aura_eval.format_tool_table([]) == "no per-tool results"
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -397,6 +420,18 @@ def _percentile(values, pct):
     return ordered[min(len(ordered) - 1, round(pct / 100 * (len(ordered) - 1)))]
 
 
+def _by_tool(rows):
+    tools = {}
+    for r in rows:
+        if r["kind"] != "tool":
+            continue
+        entry = tools.setdefault(r["expect"], {"cases": 0, "model_correct": 0, "pipeline_correct": 0})
+        entry["cases"] += 1
+        entry["model_correct"] += int(bool(r["model_correct"]))
+        entry["pipeline_correct"] += int(bool(r["pipeline_correct"]))
+    return tools
+
+
 def summarize(rows):
     latencies = [r["latency_ms"] for r in rows if not r["server_error"]]
     return {
@@ -411,6 +446,10 @@ def summarize(rows):
         "bad_reply": _rate(rows, "bad_reply"),
         "latency_ms_p50": _percentile(latencies, 50),
         "latency_ms_p95": _percentile(latencies, 95),
+        # _ACTION_CUE drops a call when the request has no action word; count correct calls it dropped
+        "gate_dropped_correct_calls": sum(
+            1 for r in rows if r.get("model_correct") and not r.get("pipeline_correct")),
+        "by_tool": _by_tool(rows),
     }
 
 
@@ -446,6 +485,19 @@ def format_table(results, markdown):
     widths = [max(len(HEADER[i]), *(len(row[i]) for row in rows)) for i in range(len(HEADER))]
     fmt = "  ".join("{:<%d}" % w for w in widths)
     return "\n".join([fmt.format(*HEADER)] + [fmt.format(*row) for row in rows])
+
+
+TOOL_HEADER = ["model", "decoding", "tool", "cases", "model correct", "pipeline correct"]
+
+
+def format_tool_table(results):
+    lines = ["| " + " | ".join(TOOL_HEADER) + " |", "|" + "---|" * len(TOOL_HEADER)]
+    for result in results:
+        meta = result["meta"]
+        for tool, e in sorted(result["metrics"].get("by_tool", {}).items()):
+            lines.append(f"| {meta['model_name']} | {meta['decoding']} | {tool} | {e['cases']} "
+                         f"| {e['model_correct']} | {e['pipeline_correct']} |")
+    return "\n".join(lines) if len(lines) > 2 else "no per-tool results"
 
 
 def _git(*args):
@@ -533,6 +585,9 @@ def main(argv=None):
     if args.summary:
         results = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(RESULTS_DIR.glob("aura-eval-*.json"))]
         print(format_table(results, markdown=args.markdown))
+        if args.markdown and results:
+            print()
+            print(format_tool_table(results))
         return
     if not (args.model_name and args.model_file):
         parser.error("--model-name and --model-file are required unless --summary is given")
@@ -546,7 +601,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `python -m pytest tests/test_aura_eval.py -q`
-Expected: `8 passed`
+Expected: `9 passed`
 
 - [ ] **Step 5: Remove the old live fixture and script**
 
@@ -557,7 +612,7 @@ git rm -q tests/aura_intents.jsonl tests/test_aura_llm_live.sh
 - [ ] **Step 6: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `9 failed, 35 passed` (the 9 failures are the pre-existing ones fixed in Tasks 5-6)
+Expected: `9 failed, 36 passed` (the 9 failures are the pre-existing ones fixed in Tasks 5-6)
 
 - [ ] **Step 7: Commit**
 
@@ -916,7 +971,7 @@ Expected: only the `/system/power` and `/power` endpoint handlers (the `subproce
 - [ ] **Step 7: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `5 failed, 60 passed`. The remaining failures are:
+Expected: `5 failed, 61 passed`. The remaining failures are:
 - `test_build_prompt_lists_tools_and_forbids_invention`
 - `test_route_defers_ui_tool_unrun`
 - `test_ask_happy_path_executes_and_returns_actions`
@@ -993,7 +1048,7 @@ def test_every_tool_has_an_aurorad_executor():
 - [ ] **Step 3: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `65 passed`
+Expected: `66 passed`
 
 - [ ] **Step 4: Commit**
 
@@ -1265,7 +1320,7 @@ Expected: `aurora-shell built: ...`, then `no new warnings`. Line numbers are st
 - [ ] **Step 7: Run the Python suite (unchanged by this task)**
 
 Run: `python -m pytest tests -q`
-Expected: `65 passed`
+Expected: `66 passed`
 
 - [ ] **Step 8: Commit**
 
@@ -1588,7 +1643,7 @@ with:
 - [ ] **Step 5: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `73 passed`
+Expected: `74 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -1657,7 +1712,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `73 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `74 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -1817,7 +1872,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `73 passed`.
+Then run `python -m pytest tests -q`. Expected: `74 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
@@ -1827,6 +1882,8 @@ Insert this block directly above the line `## After first boot`:
 ## Aura evaluation
 
 73 cases: 40 tool requests, 25 messages that must not trigger a tool, 8 power requests. Measured with llama.cpp `b4589` on the development host; latency is only comparable within this table. Generated by `python tests/aura_eval.py --summary --markdown`.
+
+*Model* columns score the model's own output. *Pipeline* columns run that same output through `aura_llm.ask()`, whose keyword gate (`_ACTION_CUE`) drops a tool call when the request contains no action word. Some realistic requests, such as "how much battery is left", have none, so pipeline accuracy sits below model accuracy by design; the per-tool table shows where. Not covered by these cases: out-of-range brightness values and empty input.
 
 <!-- aura-eval:start -->
 <!-- aura-eval:end -->
