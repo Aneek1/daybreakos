@@ -1203,6 +1203,25 @@ def test_foreign_host_is_refused(port):
         assert _post(port, {"Host": host, "Content-Type": JSON})[0] == 403, host
 
 
+def _get(port, host, path="/system/aura-status"):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.putrequest("GET", path, skip_host=True, skip_accept_encoding=True)
+    conn.putheader("Host", host)
+    conn.endheaders()
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    return resp.status
+
+
+def test_get_with_foreign_host_is_refused(port):
+    # A DNS-rebinding page is same-origin under its own domain, so it could read GET replies.
+    for host in ("attacker.example", f"attacker.example:{port}"):
+        assert _get(port, host) == 403, host
+        assert _get(port, host, "/files?path=~") == 403, host
+    assert _get(port, f"127.0.0.1:{port}") == 200
+
+
 def test_refusal_happens_before_the_body_is_read(port):
     status, _ = _post(port, {"Host": "127.0.0.1", "Content-Type": "text/plain", "Origin": "null"}, body=b"not json")
     assert status == 403
@@ -1215,7 +1234,7 @@ def test_responses_carry_no_cors_headers(port):
 ```
 
 Run: `python -m pytest tests/test_aurorad_http.py -q -p no:cacheprovider`
-Expected: `5 failed, 1 passed` (only `test_native_client_headers_are_accepted` passes; the refusal tests get 200 or 400, and the CORS test finds the header).
+Expected: `6 failed, 1 passed` (only `test_native_client_headers_are_accepted` passes; the refusal tests get 200 or 400, and the CORS test finds the header).
 
 - [ ] **Step 0b: Refuse browser requests in `aurorad`**
 
@@ -1227,18 +1246,24 @@ In `shell/aurorad.py`:
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
 
+def foreign_host(headers):
+    """True unless Host names this machine. A DNS-rebinding page reaches 127.0.0.1 under its
+    own domain, is same-origin there, and so could read GET replies; its Host gives it away."""
+    host = (headers.get("Host") or "").strip().lower()
+    if not host.endswith("]"):
+        host = host.rsplit(":", 1)[0]
+    return host not in LOCAL_HOSTS
+
+
 def browser_request(headers):
-    """True if a web page could have sent this request. Browsers add Origin to cross-origin
+    """True if a web page could have sent this POST. Browsers add Origin to cross-origin
     POSTs, can't send a JSON Content-Type cross-origin without a preflight (refused below),
     and a DNS-rebinding page arrives with its own Host. The native shell, the settings app
     and the daybreak CLI send JSON, no Origin, and Host 127.0.0.1."""
     if headers.get("Origin") is not None:
         return True
     ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
-    host = (headers.get("Host") or "").strip().lower()
-    if not host.endswith("]"):
-        host = host.rsplit(":", 1)[0]
-    return ctype != "application/json" or host not in LOCAL_HOSTS
+    return ctype != "application/json" or foreign_host(headers)
 
 
 ```
@@ -1276,17 +1301,24 @@ with
         n = int(self.headers.get("Content-Length", 0))
 ```
 
+5. Insert as the first lines of `do_GET`'s body, above `url = urllib.parse.urlparse(self.path)`:
+
+```python
+        if foreign_host(self.headers):
+            return self._send({"error": "requests from web pages are not allowed"}, 403)
+```
+
 - [ ] **Step 0c: Make the settings app send a local Host**
 
-In `shell/aurora-desktop/aurora-settings.c`, `sysd_send` sends `Host: x`, which Step 0b refuses. Replace both occurrences of `HTTP/1.0\r\nHost: x\r\n` with `HTTP/1.0\r\nHost: 127.0.0.1\r\n` (exactly 2). `aurora-shell.c` already sends `Host: 127.0.0.1` with a JSON Content-Type on every POST, and `shell/daybreak` uses urllib with a JSON Content-Type, so neither changes.
+In `shell/aurora-desktop/aurora-settings.c`, `sysd_send` sends `Host: x`, which Step 0b refuses. Replace both occurrences of `HTTP/1.0\r\nHost: x\r\n` with `HTTP/1.0\r\nHost: 127.0.0.1\r\n` (exactly 2). `aurora-shell.c` already sends `Host: 127.0.0.1` with a JSON Content-Type on every POST, and `shell/daybreak` uses urllib with a JSON Content-Type and Host `127.0.0.1:PORT`, so neither changes; all three already send a local Host on GET too.
 
 - [ ] **Step 0d: Run the tests**
 
 Run: `python -m pytest tests/test_aurorad_http.py tests/test_aurorad_ask.py -q -p no:cacheprovider`
-Expected: `8 passed`
+Expected: `9 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `92 passed`
+Expected: `93 passed`
 
 - [ ] **Step 0e: Commit**
 
@@ -1547,7 +1579,7 @@ Expected: `aurora-shell built: ...`, then `no new warnings`. Line numbers are st
 - [ ] **Step 7: Run the Python suite (unchanged by this task)**
 
 Run: `python -m pytest tests -q`
-Expected: `92 passed`
+Expected: `93 passed`
 
 - [ ] **Step 8: Commit**
 
@@ -1870,7 +1902,7 @@ with:
 - [ ] **Step 5: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `100 passed`
+Expected: `101 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -1983,7 +2015,7 @@ Run: `python -m pytest tests/test_aura_eval.py -q`
 Expected: `14 passed`
 
 Run: `python -m pytest tests -q`
-Expected: `102 passed`
+Expected: `103 passed`
 
 Run: `python tests/aura_eval.py --summary`
 Expected: the baseline row prints with `-` under "system facts, no tool".
@@ -2066,7 +2098,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `102 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `103 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -2235,7 +2267,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `102 passed`.
+Then run `python -m pytest tests -q`. Expected: `103 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 

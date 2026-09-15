@@ -142,10 +142,11 @@ One JSON object per line, with `say`, `expect` and optional `args`. It replaces 
 Found in code review of phase B (2026-09-15). `aurorad` answered every request with `Access-Control-Allow-Origin: *` and parsed any request body as JSON. A web page open in a browser on the machine could therefore POST a `text/plain` body, which browsers send without a CORS preflight, to `/system/power`, `/power`, `/system/install` or `/launch`, with no click. Trusting local processes (§3) never meant trusting every page a browser loads.
 
 - Every POST is refused with 403, before its body is read, if it carries an `Origin` header, has a Content-Type other than `application/json`, or names a Host other than `127.0.0.1`, `localhost` or `[::1]`. The Host check stops DNS rebinding, where a page reaches 127.0.0.1 under its own domain.
-- Responses carry no CORS headers and OPTIONS preflights get 403, so pages cannot read responses such as `/files` either.
+- Every GET naming a Host other than those three is refused with 403 too. A rebinding page is same-origin under its own domain, so CORS would not stop it reading replies such as `/files`, `/system/disks` or `/system/shares`.
+- Responses carry no CORS headers and OPTIONS preflights get 403, so other origins cannot read responses such as `/files` either.
 - Native clients already qualify: `aurora-shell.c` and `shell/daybreak` send JSON with no Origin. `aurora-settings.c` sent `Host: x` and now sends `Host: 127.0.0.1`.
 - The legacy web shell is a `file://` page in Firefox, so it can no longer reach `aurorad`. It is labelled legacy (§9).
-- Tests (`tests/test_aurorad_http.py`) start a real `aurorad` and check that native headers are accepted and every refusal case gets 403. They use the `lock` action, which only answers ok, so a broken check can never power anything off.
+- Tests (`tests/test_aurorad_http.py`) start a real `aurorad` and check that native headers are accepted and every refusal case, POST and GET, gets 403. They use the `lock` action, which only answers ok, so a broken check can never power anything off.
 - Not covered: another local user or process can still call `aurorad` directly (§3).
 
 ## 6. Test suite realignment (phase B, same change)
