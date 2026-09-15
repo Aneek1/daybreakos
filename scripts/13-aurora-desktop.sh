@@ -180,6 +180,7 @@ if [ ! -f $STAMPS/x-llama ]; then
 fi
 install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
 install -Dm644 /aurora/shell/aura_llm.py       /usr/lib/aurora/aura_llm.py
+install -Dm644 /aurora/shell/aura_power.py     /usr/lib/aurora/aura_power.py
 install -Dm755 /aurora/shell/aurorad.py         /usr/lib/aurora/aurorad
 
 # Daybreak Store catalog (pipe-delimited; read by both aurorad and aurora-shell)

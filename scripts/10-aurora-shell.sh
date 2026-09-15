@@ -106,6 +106,7 @@ fi
 # aura assets: the shared tool registry + the LLM module live next to the shell
 install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
 install -Dm644 /aurora/shell/aura_llm.py /usr/lib/aurora/aura_llm.py
+install -Dm644 /aurora/shell/aura_power.py /usr/lib/aurora/aura_power.py
 
 # ---------- 4) DaybreakOS shell + aurorad ----------
 install -d /usr/share/aurora/shell /usr/lib/aurora
