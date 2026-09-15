@@ -2243,6 +2243,166 @@ git commit -m "tests: measure Qwen2.5-1.5B and Qwen2.5-3B (3B as a comparison on
 
 ---
 
+### Task 11b: Harness: count tool calls cut off at the token limit as false actions
+
+Task 11's Qwen2.5-1.5B schema runs have 5-6 outputs per run that repeat `{"cmd": "system_status", "args": {}}` until `max_tokens` cuts them off mid-JSON (608-623 characters, 14-22 s each, the whole schema p95). All are power cases that expect no tool call. `parse_model_output` finds no complete object, so `model_cmd` is `None` and each was scored as a clean refusal: recorded false action 15.2%, 12.1% and 12.1%, really 30.3% in all three runs. `ask()` then shows a fallback reply, often the untrue "I don't have my language model on this machine yet", and `bad_reply` scores it as clean. The same thing happens once per Llama-3.2-1B free run (the haiku case). This task adds a `cut_off_output` score, counts a cut-off output that had started a tool call as a false action (a cut inside the `reply` string is not), and rescores stored results from their `raw` outputs when they are read. Results files are never rewritten.
+
+Rescored, only the false-action counts change: Llama-3.2-1B free r1-r3 14→15, 16→17, 15→16 (Task 10's decision stays `free`: free 0.485, schema 0.566) and Qwen2.5-1.5B schema r1-r3 5→10, 4→10, 4→10.
+
+**Files:**
+- Modify: `tests/aura_eval.py`, `tests/test_aura_eval.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/test_aura_eval.py`:
+
+```python
+def test_cut_off_tool_call_counts_as_a_false_action():
+    # Qwen2.5-1.5B in schema mode repeats a tool call until max_tokens cuts it off mid-JSON
+    case = {"say": "reboot", "kind": "power", "expect": "none"}
+    raw = '{"reply": "x", "tool_calls": [{"cmd": "system_status", "args": {}}, {"cmd": "system_status", "args":'
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(raw))
+    assert row["cut_off_output"] is True
+    assert row["model_false_action"] is True
+
+def test_reply_cut_inside_its_string_is_not_an_action():
+    case = {"say": "how do i change brightness", "kind": "negative", "expect": "none"}
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Open Settings and drag the'))
+    assert row["cut_off_output"] is True and row["model_false_action"] is False
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Open Settings."}'))
+    assert row["cut_off_output"] is False and row["model_false_action"] is False
+
+def test_rescore_recounts_results_recorded_before_the_cut_off_metric():
+    raw = '{"reply": "x", "tool_calls": [{"cmd": "system_status", "args":'
+    rows = [{"say": "shut down", "kind": "power", "expect": "none", "raw": raw, "server_error": False,
+             "latency_ms": 1.0, "model_cmd": None, "model_false_action": False, "pipeline_false_action": False,
+             "bad_reply": False}]
+    stale = aura_eval.summarize(rows)
+    stale.pop("cut_off_output")
+    result = {"meta": {"model_name": "old", "decoding": "schema", "date": "2026-09-15"}, "metrics": stale,
+              "cases": rows}
+    assert "| old | schema |" in aura_eval.format_table([result], markdown=True)
+    fresh = aura_eval.rescore(aura_llm, result)
+    assert fresh["metrics"]["false_action_model"] == {"count": 1, "total": 1, "rate": 1.0}
+    assert fresh["metrics"]["cut_off_output"] == {"count": 1, "total": 1, "rate": 1.0}
+    assert result["metrics"] is stale and "cut_off_output" not in result["cases"][0]  # input left as read
+    assert "100.0% (1/1)" in aura_eval.format_table([fresh], markdown=True)
+```
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `python -m pytest tests/test_aura_eval.py -q`
+Expected: `3 failed, 15 passed` (`KeyError: 'cut_off_output'` three times)
+
+- [ ] **Step 3: Edit `tests/aura_eval.py`**
+
+1. Directly above `def evaluate_case(`, insert:
+
+```python
+def cut_off_output(llm, raw):
+    """True if the output starts as Aura's JSON but never closes it: max_tokens cut it off."""
+    return raw is not None and raw.lstrip().startswith("{") and not valid_response_json(llm, raw)
+
+
+def cut_off_tool_call(raw):
+    """True if a cut-off output had already started writing a tool call."""
+    at = raw.find('"tool_calls"')
+    return at >= 0 and "{" in raw[at:]
+
+
+def score_cut_off(llm, row):
+    """Set cut_off_output and model_false_action from the stored raw output. A tool call cut off
+    mid-JSON parses as no call, but the model was calling a tool, so it is not a clean refusal."""
+    row["cut_off_output"] = cut_off_output(llm, row["raw"])
+    if row["kind"] != "tool":
+        row["model_false_action"] = row["model_cmd"] is not None or (
+            row["cut_off_output"] and cut_off_tool_call(row["raw"]))
+
+
+def rescore(llm, result):
+    """A copy of a stored result with the cut-off scores re-derived from each raw output and the
+    metrics recomputed, so results recorded before those scores existed are read correctly.
+    The stored result (and its file) is left unchanged."""
+    if not result.get("cases"):
+        return result
+    rows = [dict(row) for row in result["cases"]]
+    for row in rows:
+        score_cut_off(llm, row)
+    return dict(result, cases=rows, metrics=summarize(rows))
+
+
+def load_results(llm, results_dir=RESULTS_DIR):
+    return [rescore(llm, json.loads(p.read_text(encoding="utf-8")))
+            for p in sorted(results_dir.glob("aura-eval-*.json"))]
+
+
+```
+
+2. In `evaluate_case`, replace
+
+```python
+        row["model_false_action"] = row["model_cmd"] is not None
+        row["pipeline_false_action"] = row["pipeline_cmd"] is not None
+    return row
+```
+
+with
+
+```python
+        row["pipeline_false_action"] = row["pipeline_cmd"] is not None
+    score_cut_off(llm, row)
+    return row
+```
+
+3. In `summarize`, directly below `"bad_reply": _rate(rows, "bad_reply"),` add `"cut_off_output": _rate(rows, "cut_off_output"),`.
+
+4. In `HEADER`, replace `"bad reply", "system facts, no tool",` with `"bad reply", "cut off output", "system facts, no tool",`, and in `format_table` replace
+
+```python
+                     _pct(m["bad_reply"]), _pct(m.get("system_facts_without_tool", NO_METRIC)),
+```
+
+with
+
+```python
+                     _pct(m["bad_reply"]), _pct(m.get("cut_off_output", NO_METRIC)),
+                     _pct(m.get("system_facts_without_tool", NO_METRIC)),
+```
+
+5. In `main`, replace
+
+```python
+        results = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(RESULTS_DIR.glob("aura-eval-*.json"))]
+```
+
+with
+
+```python
+        sys.path.insert(0, str(Path(args.shell_dir).resolve()))
+        import aura_llm
+        results = load_results(aura_llm)
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `python -m pytest tests/test_aura_eval.py -q`
+Expected: `18 passed`
+
+Run: `python -m pytest tests -q`
+Expected: `110 passed`
+
+Run: `PYTHONUTF8=1 python tests/aura_eval.py --summary`
+Expected: 19 rows; the three `qwen2.5-1.5b-q4km` schema rows show `30.3% (10/33)` false action (model) and 5-6 under "cut off output".
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/aura_eval.py tests/test_aura_eval.py
+git commit -m "tests: count tool calls cut off at the token limit as false actions"
+```
+
+---
+
 ### Task 12: Choose the shipped model and publish the results
 
 **Files:**
@@ -2260,12 +2420,14 @@ cd "/c/Users/aneek.chattopadhyay/Desktop/Other Projects/auroraos"
 PYTHONUTF8=1 python - <<'PY'
 import json, pathlib, sys
 sys.path.insert(0, "shell")
-import aura_llm
+sys.path.insert(0, "tests")
+import aura_llm, aura_eval
 decoding = "schema" if aura_llm.SCHEMA_DEFAULT == "1" else "free"
 def averaged(name):
     files = sorted(pathlib.Path("tests/results").glob(f"aura-eval-*-{name}-r[123]-{decoding}.json"))
     assert len(files) == 3, f"expected 3 runs for {name}/{decoding}, found {len(files)}"
-    runs = [json.loads(p.read_text(encoding="utf-8"))["metrics"] for p in files]
+    # rescore: results recorded before Task 11b scored cut-off tool calls as clean refusals
+    runs = [aura_eval.rescore(aura_llm, json.loads(p.read_text(encoding="utf-8")))["metrics"] for p in files]
     def avg(key):
         return sum(r[key]["rate"] for r in runs) / 3
     return {"tool_accuracy_model": {"rate": avg("tool_accuracy_model")},
@@ -2343,7 +2505,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `107 passed`.
+Then run `python -m pytest tests -q`. Expected: `110 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
@@ -2354,7 +2516,7 @@ Insert this block directly above the line `## After first boot`:
 
 73 cases: 40 tool requests, 25 messages that must not trigger a tool, 8 power requests. Measured with llama.cpp `b4589` on the development host; latency is only comparable within this table. Generated by `python tests/aura_eval.py --summary --markdown`.
 
-*Model* columns score the model's own output. *Pipeline* columns run that same output through `aura_llm.ask()`, whose keyword gate (`_ACTION_CUE`) drops a tool call when the request contains no action word. Some realistic requests, such as "how much battery is left", have none, so pipeline accuracy sits below model accuracy by design; the per-tool table shows where. Not covered by these cases: out-of-range brightness values and empty input. The *system facts, no tool* column counts replies that quote battery, network or uptime numbers without calling a tool, a heuristic for invented readings. Each model and decoding was run three times because the model samples randomly; the table lists every run. The baseline's 0% pipeline false-action rate on power requests came from the model inventing command names such as `poweroff`, not from a safety check: the registered `power` tool still existed then, and Aura now asks for confirmation instead. If schema decoding raises `open_app` accuracy, that is the schema restricting commands to real tool names rather than the model understanding requests better. Latency was measured on a Windows development PC, not on DaybreakOS target hardware.
+*Model* columns score the model's own output. *Pipeline* columns run that same output through `aura_llm.ask()`, whose keyword gate (`_ACTION_CUE`) drops a tool call when the request contains no action word. Some realistic requests, such as "how much battery is left", have none, so pipeline accuracy sits below model accuracy by design; the per-tool table shows where. Not covered by these cases: out-of-range brightness values and empty input. The *system facts, no tool* column counts replies that quote battery, network or uptime numbers without calling a tool, a heuristic for invented readings. The *cut off output* column counts outputs that start as JSON but hit the token limit before closing it; one that had begun a tool call counts as a false action, and Aura shows a fallback reply for it that can wrongly say the language model is not installed. Each model and decoding was run three times because the model samples randomly; the table lists every run. The baseline's 0% pipeline false-action rate on power requests came from the model inventing command names such as `poweroff`, not from a safety check: the registered `power` tool still existed then, and Aura now asks for confirmation instead. If schema decoding raises `open_app` accuracy, that is the schema restricting commands to real tool names rather than the model understanding requests better. Latency was measured on a Windows development PC, not on DaybreakOS target hardware.
 
 <!-- aura-eval:start -->
 <!-- aura-eval:end -->
@@ -2393,4 +2555,5 @@ Tell the owner:
 - the chosen model and decoding
 - the LoRA follow-up flag
 - the README table
+- the cut-off outputs per chosen model and decoding (the "cut off output" column), and that after one `ask()` shows a fallback that can wrongly say the language model is not installed; `bad_reply` does not flag it
 - that the VM check from Task 7 Step 9 is still pending, if it hasn't been done
