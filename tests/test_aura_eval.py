@@ -122,6 +122,16 @@ def test_system_facts_without_tool_flags_invented_readings():
     row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Battery level: 100%"}'))
     assert row["system_facts_without_tool"] is True
 
+def test_system_facts_scores_the_model_not_the_fallback():
+    # ask() fills an empty or placeholder reply from the harness's own FAKE_STATUS; the model invented nothing
+    battery = {"say": "how much battery is left", "kind": "tool", "expect": "system_status"}
+    brightness = {"say": "what's the brightness", "kind": "negative", "expect": "none"}
+    for case, raw in [(battery, '{"reply": ""}'), (battery, '{"reply": "<short confirmation>"}'),
+                      (battery, '{"tool_calls": [{"cmd": "system_status"}], "reply": ""}'),
+                      (brightness, '{"reply": ""}')]:
+        row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(raw))
+        assert row["system_facts_without_tool"] is False, (case["say"], raw, row["reply"])
+
 def test_table_reads_results_recorded_before_the_system_facts_metric():
     m = aura_eval.summarize([{"kind": "negative", "expect": "none", "server_error": False, "latency_ms": 1.0,
                               "model_false_action": False, "pipeline_false_action": False, "bad_reply": False}])

@@ -56,11 +56,12 @@ def valid_response_json(llm, raw):
 SYSTEM_WORDS = ("battery", "uptime", "network", "mbps", "brightness", "cpu", "memory")
 
 
-def states_system_facts(reply, actions):
-    """True if a reply quotes numbers about the machine although no tool ran. A heuristic:
-    it catches invented readings such as 'Battery: 92%', and can also flag harmless replies."""
+def states_system_facts(reply, tool_calls):
+    """True if a reply quotes numbers about the machine although the model called no tool. A heuristic:
+    it catches invented readings such as 'Battery: 92%', and can also flag harmless replies.
+    Pass the model's own reply and tool calls, not ask()'s: its fallback fills bad replies from status."""
     text = (reply or "").lower()
-    return not actions and any(ch.isdigit() for ch in text) and any(word in text for word in SYSTEM_WORDS)
+    return not tool_calls and any(ch.isdigit() for ch in text) and any(word in text for word in SYSTEM_WORDS)
 
 
 def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
@@ -96,7 +97,7 @@ def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
         "model_args": first["args"] if first else None,
         "pipeline_cmd": out["actions"][0]["cmd"] if out["actions"] else None,
         "reply": out["a"], "bad_reply": llm._reply_is_bad(out["a"]),
-        "system_facts_without_tool": states_system_facts(out["a"], out["actions"]),
+        "system_facts_without_tool": states_system_facts(parsed["reply"], parsed["tool_calls"]),
     }
     if case["kind"] == "tool":
         row["model_correct"] = row["model_cmd"] == case["expect"]
