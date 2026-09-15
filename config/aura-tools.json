@@ -1,14 +1,14 @@
 [
   {"name": "open_terminal", "side": "system", "description": "Open a terminal window (the foot terminal).",
-   "args": {}},
+   "args": {}, "schema": {}},
   {"name": "open_app", "side": "system", "description": "Open an installed application by name (for example a terminal or a text editor).",
-   "args": {"name": "the application name to open"}},
+   "args": {"name": "the application name to open"},
+   "schema": {"name": {"type": "string", "minLength": 1}}},
   {"name": "list_apps", "side": "system", "description": "List the applications installed on this system.",
-   "args": {}},
+   "args": {}, "schema": {}},
   {"name": "system_status", "side": "system", "description": "Report battery, network, and uptime from real hardware.",
-   "args": {}},
+   "args": {}, "schema": {}},
   {"name": "set_brightness", "side": "system", "description": "Set screen brightness on real hardware.",
-   "args": {"percent": "integer 0-100"}},
-  {"name": "power", "side": "system", "description": "Power off or restart the computer.",
-   "args": {"action": "one of: poweroff, reboot"}}
+   "args": {"percent": "integer 0-100"},
+   "schema": {"percent": {"type": "integer", "minimum": 0, "maximum": 100}}}
 ]

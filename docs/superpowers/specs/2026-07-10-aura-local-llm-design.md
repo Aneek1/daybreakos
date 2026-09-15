@@ -59,6 +59,8 @@ The current `Aura` object already models every shell action as a named tool (`op
 
 ### Tool routing — the crux
 
+> **Superseded 2026-09-15** by `2026-09-15-aura-eval-and-safety-design.md` §2: the native desktop runs every tool in `aurorad`; the UI-side routing below applies only to the legacy web shell.
+
 Aura's tools split by **who can execute them**:
 
 - **UI tools (browser-only):** `open_app`, `close_app`, `tile_windows`, `set_theme`, `minimize_all`, `summarize_notifications`, `browse`, `show_panel`, `lock`. These manipulate the shell DOM — `aurorad` cannot run them. `/ask` returns them as a structured action; `aurora-bridge.js` executes them against the in-page `COMMANDS` registry.

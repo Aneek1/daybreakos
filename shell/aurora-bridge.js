@@ -1,5 +1,7 @@
 /* aurora-bridge.js — wires the concept shell to the real system via aurorad.
-   Loaded after the shell's own script; degrades silently in a plain browser. */
+   Legacy web shell only (Firefox kiosk, scripts 10 and 12); the current desktop
+   is shell/aurora-desktop/aurora-shell.c. Loaded after the shell's own script;
+   degrades silently in a plain browser. */
 (function () {
   const API = "http://127.0.0.1:7212";
   const $ = (s) => document.querySelector(s);

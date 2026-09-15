@@ -13,6 +13,7 @@ Tiny localhost HTTP API the web shell talks to. Root service, binds
 """
 import json, os, re, glob, subprocess, time, urllib.parse, urllib.request, shutil, threading
 import aura_llm
+import aura_power
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # sbin tools (wipefs, sfdisk, mkfs.*) must resolve regardless of who starts us
@@ -667,11 +668,11 @@ def unmount_share(target):
 
 # ----- Aura model download (post-install) -------------------------------
 # The ISO ships without the LLM model to stay small. Once installed and online,
-# Aura downloads a ~0.8 GB model on demand; aura-llm-launch then serves it.
+# Aura downloads a ~1.0 GB model on demand; aura-llm-launch then serves it.
 AURA_MODEL_DIR = "/opt/aura/models"
 AURA_MODEL_URL = os.environ.get("AURA_MODEL_URL",
-    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/"
-    "resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+    "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/"
+    "resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
 AURA = {"running": False, "pct": 0, "done": False, "error": ""}
 AURA_LOCK = threading.Lock()
 
@@ -682,7 +683,7 @@ def aura_model_present():
         return False
 
 def _aura_download():
-    dest = os.path.join(AURA_MODEL_DIR, "Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+    dest = os.path.join(AURA_MODEL_DIR, "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
     tmp = dest + ".part"
     try:
         os.makedirs(AURA_MODEL_DIR, exist_ok=True)
@@ -729,6 +730,29 @@ def aura_status():
     s["installed"] = aura_model_present()
     return s
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
+def foreign_host(headers):
+    """True unless Host names this machine. A DNS-rebinding page reaches 127.0.0.1 under its
+    own domain, is same-origin there, and so could read GET replies; its Host gives it away."""
+    host = (headers.get("Host") or "").strip().lower()
+    if not host.endswith("]"):
+        host = host.rsplit(":", 1)[0]
+    return host not in LOCAL_HOSTS
+
+
+def browser_request(headers):
+    """True if a web page could have sent this POST. Browsers add Origin to cross-origin
+    POSTs, can't send a JSON Content-Type cross-origin without a preflight (refused below),
+    and a DNS-rebinding page arrives with its own Host. The native shell, the settings app
+    and the daybreak CLI send JSON, no Origin, and Host 127.0.0.1."""
+    if headers.get("Origin") is not None:
+        return True
+    ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    return ctype != "application/json" or foreign_host(headers)
+
+
 class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         # ensure_ascii=False so unicode (em-dashes, accents, emoji) goes out as
@@ -736,15 +760,15 @@ class H(BaseHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    def do_OPTIONS(self): self._send({})
+    def do_OPTIONS(self): self._send({"error": "cross-origin requests are not allowed"}, 403)
 
     def do_GET(self):
+        if foreign_host(self.headers):
+            return self._send({"error": "requests from web pages are not allowed"}, 403)
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
         if url.path == "/status":
@@ -788,6 +812,8 @@ class H(BaseHTTPRequestHandler):
             self._send({"error": "not found"}, 404)
 
     def do_POST(self):
+        if browser_request(self.headers):
+            return self._send({"error": "requests from web pages are not allowed"}, 403)
         n = int(self.headers.get("Content-Length", 0))
         try: data = json.loads(self.rfile.read(n) or b"{}")
         except json.JSONDecodeError: return self._send({"error": "bad json"}, 400)
@@ -885,28 +911,26 @@ class H(BaseHTTPRequestHandler):
                 return ("Installed apps: " + ", ".join(names)) if names else \
                        "Only the terminal is installed so far."
 
-            def _power(a):
-                act = a.get("action")
-                if act in ("poweroff", "reboot"):
-                    subprocess.Popen(["systemctl", act])
-                    return "Shutting down…" if act == "poweroff" else "Restarting…"
-                return "I can power off or restart — which would you like?"
-
             executors = {
                 "open_terminal": _open_terminal,
                 "open_app": _open_app,
                 "list_apps": _list_apps,
-                "power": _power,
                 "set_brightness": lambda a: (f"Brightness set to {int(a.get('percent', 50))}%."
                                              if brightness_set(int(a.get("percent", 50)))
                                              else "This device has no software-controllable backlight."),
                 "system_status": lambda a: self._status_line(status),
             }
 
-            # Fast-path obvious imperative commands. The bundled 1B model is not
+            # Fast-path obvious imperative commands. The bundled small model is not
             # reliable at emitting tool-call JSON, so match clear intents directly
             # and only defer to the model for open-ended chat.
             ql = q.strip().lower()
+            # Power never runs from /ask (this is the unprivileged session aurorad):
+            # the Aura panel asks Power off / Cancel, then calls the root /system/power.
+            power = aura_power.power_request(ql)
+            if power:
+                self._send(aura_power.confirm_payload(power))
+                return
             shortcut = None
             if re.search(r"\b(open|launch|start|new|run)\b.*\b(terminal|term|console|shell)\b", ql) \
                or ql in ("terminal", "cli"):
@@ -922,10 +946,6 @@ class H(BaseHTTPRequestHandler):
                 m2 = re.search(r"(\d{1,3})", ql)
                 shortcut = executors["set_brightness"](
                     {"percent": m2.group(1) if m2 else 50})
-            elif re.search(r"\b(shut\s?down|power\s?off|turn\s?off)\b", ql):
-                shortcut = _power({"action": "poweroff"})
-            elif re.search(r"\b(restart|reboot)\b", ql):
-                shortcut = _power({"action": "reboot"})
             else:
                 m = re.match(r"(?:open|launch|start|run)\s+(?:the\s+|an?\s+)?(.+)", ql)
                 if m:

@@ -348,37 +348,65 @@ static char *aurorad_send(const char *method, const char *path, const char *body
     return out;
 }
 
-/* ----- Aura: POST /ask to aurorad, return reply text ----- */
-static char *aura_ask(const char *q) {
+static void power_action(const char *act);   /* defined with the system menu */
+
+/* ----- Aura: POST /ask to aurorad ----- */
+
+/* Minimal JSON string reader: finds "key" at or after `from` and returns its
+ * unescaped string value (caller frees), or NULL. aurorad writes flat UTF-8
+ * JSON (ensure_ascii=False), so a full parser isn't needed. */
+static char *json_string_after(const char *from, const char *key) {
+    char *quoted = g_strdup_printf("\"%s\"", key);
+    const char *p = strstr(from, quoted);
+    g_free(quoted);
+    if (!p) return NULL;
+    p = strchr(p, ':'); if (!p) return NULL; p++;
+    while (*p == ' ') p++;
+    if (*p != '"') return NULL;
+    p++;
+    GString *out = g_string_new("");
+    for (; *p && *p != '"'; p++) {
+        if (*p == '\\' && p[1]) { p++;
+            if (*p == 'n') g_string_append_c(out, '\n');
+            else g_string_append_c(out, *p);
+        } else g_string_append_c(out, *p);
+    }
+    return g_string_free(out, FALSE);
+}
+
+static int json_int_after(const char *from, const char *key, int fallback) {
+    char *quoted = g_strdup_printf("\"%s\"", key);
+    const char *p = strstr(from, quoted);
+    g_free(quoted);
+    if (!p || !(p = strchr(p, ':'))) return fallback;
+    return atoi(p + 1);
+}
+
+/* raw /ask response body, or NULL if aurorad isn't up yet (caller frees) */
+static char *aura_ask_json(const char *q) {
     char *jq = g_strescape(q, "");           /* escape \, ", control chars */
     char *body = g_strdup_printf("{\"q\":\"%s\"}", jq);
     g_free(jq);
     char *json = aurorad_send("POST", "/ask", body);
     g_free(body);
-    if (!json) return g_strdup("(Aura is still waking up…)");
+    return json;
+}
 
-    /* pull "reply"/"answer" out of the JSON. aurorad's /ask returns
-     * {"a": "<reply>", "actions": [...]}, so "a" is the primary key; the others
-     * are accepted for forward-compat with other bridges. */
-    char *reply = NULL;
-    const char *keys[] = {"\"a\"", "\"reply\"", "\"answer\"", "\"text\"", NULL};
-    for (int k = 0; keys[k] && !reply; k++) {
-        char *p = strstr(json, keys[k]);
-        if (!p) continue;
-        p = strchr(p, ':'); if (!p) continue; p++;
-        while (*p == ' ') p++;
-        if (*p != '"') continue;
-        p++;
-        GString *out = g_string_new("");
-        for (; *p && *p != '"'; p++) {
-            if (*p == '\\' && p[1]) { p++;
-                if (*p == 'n') g_string_append_c(out, '\n');
-                else g_string_append_c(out, *p);
-            } else g_string_append_c(out, *p);
-        }
-        reply = g_string_free(out, FALSE);
+/* aurorad's /ask returns {"a": "<reply>", "actions": [...]}, so "a" is the
+ * primary key; the others are accepted for forward-compat with other bridges. */
+static char *aura_reply_text(const char *json) {
+    if (!json) return g_strdup("(Aura is still waking up…)");
+    const char *keys[] = {"a", "reply", "answer", "text", NULL};
+    for (int k = 0; keys[k]; k++) {
+        char *reply = json_string_after(json, keys[k]);
+        if (reply) return reply;
     }
-    if (!reply) reply = g_strndup(json, 400);
+    return g_strndup(json, 400);
+}
+
+static char *aura_ask(const char *q) {
+    char *json = aura_ask_json(q);
+    char *reply = aura_reply_text(json);
     g_free(json);
     return reply;
 }
@@ -401,25 +429,98 @@ static GtkWidget *aura_add_msg(const char *text, gboolean user) {
  * freezes the desktop. The worker builds a result and hands it back to the GTK
  * main thread via g_idle_add (all widget access stays on the main thread). */
 typedef struct { char *q; GtkWidget *bubble; GtkWidget *entry; } AuraJob;
-typedef struct { char *reply; GtkWidget *bubble; GtkWidget *entry; } AuraResult;
+typedef struct {
+    char *reply; GtkWidget *bubble; GtkWidget *entry;
+    char *confirm_action, *confirm_label; int confirm_secs;   /* confirm_action NULL: no buttons */
+} AuraResult;
+
+/* Power off / Cancel under a reply. Nothing runs until the button is clicked;
+ * the struct is freed by its expiry timeout. */
+typedef struct { char *action; GtkWidget *row; GtkWidget *bubble; gboolean settled; } AuraConfirm;
+
+static void aura_confirm_settle(AuraConfirm *c, const char *note) {
+    if (c->settled || !c->row) return;
+    c->settled = TRUE;
+    gtk_widget_set_sensitive(c->row, FALSE);
+    char *text = g_strdup_printf("%s\n%s", gtk_label_get_text(GTK_LABEL(c->bubble)), note);
+    gtk_label_set_text(GTK_LABEL(c->bubble), text);
+    g_free(text);
+}
+
+static void on_aura_confirm_ok(GtkButton *b, gpointer u) {
+    AuraConfirm *c = u;
+    if (c->settled) return;
+    aura_confirm_settle(c, g_str_equal(c->action, "reboot") ? "Restarting…" : "Shutting down…");
+    power_action(c->action);                 /* root service /system/power */
+}
+
+static void on_aura_confirm_cancel(GtkButton *b, gpointer u) { aura_confirm_settle(u, "Cancelled."); }
+
+static void on_aura_confirm_row_destroy(GtkWidget *w, gpointer u) {
+    AuraConfirm *c = u;
+    c->row = NULL;
+    c->settled = TRUE;
+}
+
+static gboolean aura_confirm_expire(gpointer u) {
+    AuraConfirm *c = u;
+    aura_confirm_settle(c, "Expired.");
+    g_free(c->action);
+    g_free(c);
+    return G_SOURCE_REMOVE;
+}
+
+static void aura_add_confirm(AuraResult *r) {
+    AuraConfirm *c = g_new0(AuraConfirm, 1);
+    c->action = g_strdup(r->confirm_action);
+    c->bubble = r->bubble;
+    c->row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(c->row, GTK_ALIGN_START);
+    gtk_style_context_add_class(gtk_widget_get_style_context(c->row), "aura-confirm");
+    GtkWidget *ok = gtk_button_new_with_label(r->confirm_label ? r->confirm_label : "Confirm");
+    GtkWidget *cancel = gtk_button_new_with_label("Cancel");
+    gtk_style_context_add_class(gtk_widget_get_style_context(ok), "destructive-action");
+    g_signal_connect(ok, "clicked", G_CALLBACK(on_aura_confirm_ok), c);
+    g_signal_connect(cancel, "clicked", G_CALLBACK(on_aura_confirm_cancel), c);
+    g_signal_connect(c->row, "destroy", G_CALLBACK(on_aura_confirm_row_destroy), c);
+    gtk_box_pack_start(GTK_BOX(c->row), ok, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(c->row), cancel, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_aura_log), c->row, FALSE, FALSE, 0);
+    gtk_widget_show_all(c->row);
+    g_timeout_add_seconds(r->confirm_secs > 0 ? r->confirm_secs : 30, aura_confirm_expire, c);
+}
 
 static gboolean aura_apply_result(gpointer data) {
     AuraResult *r = data;
     gtk_label_set_text(GTK_LABEL(r->bubble), r->reply ? r->reply : "(no reply)");
+    if (r->confirm_action) aura_add_confirm(r);
     gtk_widget_set_sensitive(r->entry, TRUE);
     gtk_widget_grab_focus(r->entry);
     g_free(r->reply);
+    g_free(r->confirm_action);
+    g_free(r->confirm_label);
     g_free(r);
     return G_SOURCE_REMOVE;
 }
 
 static gpointer aura_worker(gpointer data) {
     AuraJob *j = data;
-    char *reply = aura_ask(j->q);          /* blocking socket I/O, off the UI thread */
+    char *json = aura_ask_json(j->q);      /* blocking socket I/O, off the UI thread */
     AuraResult *r = g_new0(AuraResult, 1);
-    r->reply = reply;
+    r->reply = aura_reply_text(json);
     r->bubble = j->bubble;
     r->entry = j->entry;
+    const char *confirm = json ? strstr(json, "\"confirm\"") : NULL;
+    if (confirm) {
+        r->confirm_action = json_string_after(confirm, "action");
+        r->confirm_label = json_string_after(confirm, "label");
+        r->confirm_secs = json_int_after(confirm, "expires_in", 30);
+    }
+    /* only the two power actions are ever confirmed from the panel */
+    if (r->confirm_action && !g_str_equal(r->confirm_action, "poweroff")
+                          && !g_str_equal(r->confirm_action, "reboot"))
+        g_clear_pointer(&r->confirm_action, g_free);
+    g_free(json);
     g_idle_add(aura_apply_result, r);
     g_free(j->q);
     g_free(j);
@@ -2163,7 +2264,7 @@ static void am_aura_setup(GtkMenuItem *i, gpointer u) {
         GtkWidget *t = gtk_label_new("Set up Aura");
         gtk_style_context_add_class(gtk_widget_get_style_context(t), "abt-name");
         gtk_widget_set_halign(t, GTK_ALIGN_START);
-        GtkWidget *s = gtk_label_new("Download Aura's on-device AI model (~0.8 GB, "
+        GtkWidget *s = gtk_label_new("Download Aura's on-device AI model (~1.0 GB, "
             "one time). Everything runs locally after this — no cloud.");
         gtk_label_set_line_wrap(GTK_LABEL(s), TRUE);
         gtk_style_context_add_class(gtk_widget_get_style_context(s), "abt-desc");

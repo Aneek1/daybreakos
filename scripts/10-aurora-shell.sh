@@ -106,6 +106,7 @@ fi
 # aura assets: the shared tool registry + the LLM module live next to the shell
 install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
 install -Dm644 /aurora/shell/aura_llm.py /usr/lib/aurora/aura_llm.py
+install -Dm644 /aurora/shell/aura_power.py /usr/lib/aurora/aura_power.py
 
 # ---------- 4) DaybreakOS shell + aurorad ----------
 install -d /usr/share/aurora/shell /usr/lib/aurora
@@ -129,7 +130,7 @@ Description=Aura on-device LLM (llama.cpp)
 After=network.target
 [Service]
 User=aurora
-ExecStart=/opt/aura/bin/llama-server --model /opt/aura/models/Llama-3.2-1B-Instruct-Q4_K_M.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096
+ExecStart=/opt/aura/bin/llama-server --model /opt/aura/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096
 Restart=on-failure
 [Install]
 WantedBy=multi-user.target
