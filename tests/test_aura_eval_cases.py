@@ -26,10 +26,15 @@ def test_expectations_are_valid():
             assert c["expect"] == "none", c
 
 def test_argument_cases():
-    cases = _cases()
-    assert all(c["args"]["name"] for c in cases if c["expect"] == "open_app")
-    assert all(isinstance(c["args"]["percent"], int) for c in cases if c["expect"] == "set_brightness")
+    for c in _cases():
+        if c["expect"] == "open_app":
+            assert c.get("args", {}).get("name"), c
+        if c["expect"] == "set_brightness":
+            assert isinstance(c.get("args", {}).get("percent"), int), c
 
 def test_no_duplicate_utterances():
-    says = [c["say"].lower() for c in _cases()]
-    assert len(says) == len(set(says))
+    seen = set()
+    for c in _cases():
+        say = c["say"].lower()
+        assert say not in seen, c
+        seen.add(say)
