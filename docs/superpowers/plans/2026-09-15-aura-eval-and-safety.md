@@ -2245,7 +2245,7 @@ git commit -m "tests: measure Qwen2.5-1.5B and Qwen2.5-3B (3B as a comparison on
 
 ### Task 11b: Harness: count tool calls cut off at the token limit as false actions
 
-Task 11's Qwen2.5-1.5B schema runs have 5-6 outputs per run that repeat `{"cmd": "system_status", "args": {}}` until `max_tokens` cuts them off mid-JSON (608-623 characters, 14-22 s each, the whole schema p95). All are power cases that expect no tool call. `parse_model_output` finds no complete object, so `model_cmd` is `None` and each was scored as a clean refusal: recorded false action 15.2%, 12.1% and 12.1%, really 30.3% in all three runs. `ask()` then shows a fallback reply, often the untrue "I don't have my language model on this machine yet", and `bad_reply` scores it as clean. The same thing happens once per Llama-3.2-1B free run (the haiku case). This task adds a `cut_off_output` score, counts a cut-off output that had started a tool call as a false action (a cut inside the `reply` string is not), and rescores stored results from their `raw` outputs when they are read. Results files are never rewritten.
+Task 11's Qwen2.5-1.5B schema runs have 5-6 outputs per run that repeat `{"cmd": "system_status", "args": {}}` until `max_tokens` cuts them off mid-JSON (608-623 characters, 14-22 s each, the whole schema p95). All are power cases that expect no tool call. `parse_model_output` finds no complete object, so `model_cmd` is `None` and each was scored as a clean refusal: recorded false action 15.2%, 12.1% and 12.1%, really 30.3% in all three runs. `ask()` then shows a fallback reply, often the untrue "I don't have my language model on this machine yet", and `bad_reply` scores it as clean. The same thing happens in each Llama-3.2-1B free run r1-r3 (the haiku case, plus `how is the system doing` in r2). A complete object without `reply` or `tool_calls`, such as `{"cmd": "open_terminal", "args": {}}`, is the wrong shape but not cut off. This task adds a `cut_off_output` score, counts a cut-off output that had started a tool call as a false action (a cut inside the `reply` string is not), and rescores stored results from their `raw` outputs when they are read. Results files are never rewritten.
 
 Rescored, only the false-action counts change: Llama-3.2-1B free r1-r3 14→15, 16→17, 15→16 (Task 10's decision stays `free`: free 0.485, schema 0.566) and Qwen2.5-1.5B schema r1-r3 5→10, 4→10, 4→10.
 
@@ -2287,12 +2287,18 @@ def test_rescore_recounts_results_recorded_before_the_cut_off_metric():
     assert fresh["metrics"]["cut_off_output"] == {"count": 1, "total": 1, "rate": 1.0}
     assert result["metrics"] is stale and "cut_off_output" not in result["cases"][0]  # input left as read
     assert "100.0% (1/1)" in aura_eval.format_table([fresh], markdown=True)
+
+def test_complete_json_in_the_wrong_shape_is_not_cut_off():
+    # Llama-3.2-1B free sometimes writes a finished object without reply or tool_calls
+    assert aura_eval.cut_off_output(aura_llm, '{"cmd": "open_terminal", "args": {}}') is False
+    assert aura_eval.cut_off_output(aura_llm, '{"status": "up", "network": "stable"}') is False
+    assert aura_eval.cut_off_output(aura_llm, '{"cmd": "reboot", "args":') is True
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `python -m pytest tests/test_aura_eval.py -q`
-Expected: `3 failed, 15 passed` (`KeyError: 'cut_off_output'` three times)
+Expected: `4 failed, 15 passed` (`KeyError: 'cut_off_output'` three times, and `AttributeError: module 'aura_eval' has no attribute 'cut_off_output'`)
 
 - [ ] **Step 3: Edit `tests/aura_eval.py`**
 
@@ -2300,8 +2306,15 @@ Expected: `3 failed, 15 passed` (`KeyError: 'cut_off_output'` three times)
 
 ```python
 def cut_off_output(llm, raw):
-    """True if the output starts as Aura's JSON but never closes it: max_tokens cut it off."""
-    return raw is not None and raw.lstrip().startswith("{") and not valid_response_json(llm, raw)
+    """True if the output starts as JSON but never closes it: max_tokens cut it off.
+    A finished object in the wrong shape (no reply or tool_calls) is not cut off."""
+    if raw is None or not raw.lstrip().startswith("{") or valid_response_json(llm, raw):
+        return False
+    try:
+        json.JSONDecoder().raw_decode(raw.lstrip())
+        return False
+    except ValueError:
+        return True
 
 
 def cut_off_tool_call(raw):
@@ -2386,13 +2399,13 @@ with
 - [ ] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_aura_eval.py -q`
-Expected: `18 passed`
+Expected: `19 passed`
 
 Run: `python -m pytest tests -q`
-Expected: `110 passed`
+Expected: `111 passed`
 
 Run: `PYTHONUTF8=1 python tests/aura_eval.py --summary`
-Expected: 19 rows; the three `qwen2.5-1.5b-q4km` schema rows show `30.3% (10/33)` false action (model) and 5-6 under "cut off output".
+Expected: 19 rows; the three `qwen2.5-1.5b-q4km` schema rows show `30.3% (10/33)` false action (model) and 5-6 under "cut off output"; the four `llama-3.2-1b-q4km` free rows (baseline, r1-r3) show 0, 1, 2 and 1 there.
 
 - [ ] **Step 5: Commit**
 
@@ -2505,7 +2518,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `110 passed`.
+Then run `python -m pytest tests -q`. Expected: `111 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
