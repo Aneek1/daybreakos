@@ -53,7 +53,7 @@ Out of scope:
 - Upgrading llama.cpp beyond `b4589`, or Qwen3 (needs a newer converter and runtime).
 - GPU inference.
 - Web-shell feature parity in the native desktop (`tile_windows`, `set_theme`, …).
-- Protecting `/system/power` from other local processes. It keeps its current trust boundary (127.0.0.1, same as all `aurorad` endpoints). The Daybreak menu's power items are explicit clicks and stay as they are.
+- Protecting `/system/power` from other local processes. It keeps its current trust boundary (127.0.0.1, same as all `aurorad` endpoints). The Daybreak menu's power items are explicit clicks and stay as they are. Web pages are not local processes in this sense; see §5.4.
 
 ## 4. Evaluation harness (phase A)
 
@@ -125,7 +125,7 @@ One JSON object per line, with `say`, `expect` and optional `args`. It replaces 
   - The action button calls the existing `power_action()`, which posts to the root service's `/system/power`, the same path as the Daybreak menu's Restart and Shut Down items. Cancel appends "Cancelled."
   - A `g_timeout_add_seconds(expires_in)` disables both buttons and appends "Expired." if neither was clicked.
 - **Legacy web shell:** it ignores `confirm`, so it shows the question with no buttons. Nothing runs, which is the safe default.
-- **Unchanged trust boundary:** `/system/power` stays callable by local processes, as it already is (§3).
+- **Trust boundary:** `/system/power` stays callable by local processes, as it already is (§3), but not by web pages (§5.4).
 
 ### 5.3 Tests
 
@@ -136,6 +136,17 @@ One JSON object per line, with `say`, `expect` and optional `args`. It replaces 
   - replace `test_names_match_index_commands` with `test_every_tool_has_an_aurorad_executor`, which checks the `executors = {…}` block in `aurorad.py`
 - **Shortcut regex:** tests that "turn off wi-fi" is not a power request and "shut down" is.
 - **C change:** compiled in WSL Ubuntu with the same flags as the ISO build before it is committed, then a VM smoke test: ask "shut down", click Cancel, nothing happens; ask again and wait 30 s, the buttons disable.
+
+### 5.4 Web pages cannot call aurorad
+
+Found in code review of phase B (2026-09-15). `aurorad` answered every request with `Access-Control-Allow-Origin: *` and parsed any request body as JSON. A web page open in a browser on the machine could therefore POST a `text/plain` body, which browsers send without a CORS preflight, to `/system/power`, `/power`, `/system/install` or `/launch`, with no click. Trusting local processes (§3) never meant trusting every page a browser loads.
+
+- Every POST is refused with 403, before its body is read, if it carries an `Origin` header, has a Content-Type other than `application/json`, or names a Host other than `127.0.0.1`, `localhost` or `[::1]`. The Host check stops DNS rebinding, where a page reaches 127.0.0.1 under its own domain.
+- Responses carry no CORS headers and OPTIONS preflights get 403, so pages cannot read responses such as `/files` either.
+- Native clients already qualify: `aurora-shell.c` and `shell/daybreak` send JSON with no Origin. `aurora-settings.c` sent `Host: x` and now sends `Host: 127.0.0.1`.
+- The legacy web shell is a `file://` page in Firefox, so it can no longer reach `aurorad`. It is labelled legacy (§9).
+- Tests (`tests/test_aurorad_http.py`) start a real `aurorad` and check that native headers are accepted and every refusal case gets 403. They use the `lock` action, which only answers ok, so a broken check can never power anything off.
+- Not covered: another local user or process can still call `aurorad` directly (§3).
 
 ## 6. Test suite realignment (phase B, same change)
 

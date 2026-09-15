@@ -1122,11 +1122,178 @@ git commit -m "tests: align Aura tests with the native desktop's tool contract"
 ### Task 7: Power off / Cancel buttons in the Aura panel
 
 **Files:**
-- Create: `scripts/check-shell-build.sh`, `.gitattributes`
-- Modify: `shell/aurora-desktop/aurora-shell.c`, `shell/aurora-desktop/style.css`
+- Create: `scripts/check-shell-build.sh`, `.gitattributes`, `tests/test_aurorad_http.py`
+- Modify: `shell/aurora-desktop/aurora-shell.c`, `shell/aurora-desktop/style.css`, `shell/aurorad.py`, `shell/aurora-desktop/aurora-settings.c`
 
 **Prerequisite:** WSL Ubuntu with the build packages installed. If `pkg-config --modversion gtk+-3.0` fails inside WSL, stop and report BLOCKED so the owner can run:
 `wsl -d Ubuntu -- sudo apt-get install -y build-essential pkg-config libgtk-3-dev libgtk-layer-shell-dev libwayland-dev`
+
+- [ ] **Step 0a: Write failing tests for browser requests**
+
+Review of Task 5 found that every `aurorad` POST (including `/system/power`, `/power`, `/system/install` and `/launch`) can be triggered by any web page open in a browser on the machine: responses carry `Access-Control-Allow-Origin: *`, and `do_POST` parses a `text/plain` body as JSON, which browsers send without a CORS preflight. The buttons this task adds would call `/system/power`, so this is closed first (spec §5.4).
+
+Create `tests/test_aurorad_http.py`:
+
+```python
+# tests/test_aurorad_http.py - aurorad refuses requests a web page could send (spec 5.4)
+import http.client, os, pathlib, socket, subprocess, sys, time
+
+import pytest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+JSON = "application/json"
+
+
+def _free_port():
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
+
+
+@pytest.fixture(scope="module")
+def port():
+    p = _free_port()
+    env = {**os.environ, "AURORAD_PORT": str(p), "AURA_LLM_URL": "http://127.0.0.1:9/v1/chat/completions"}
+    proc = subprocess.Popen([sys.executable, str(ROOT / "shell/aurorad.py")], env=env)
+    for _ in range(50):
+        try:
+            socket.create_connection(("127.0.0.1", p), timeout=0.2).close()
+            break
+        except OSError:
+            time.sleep(0.1)
+    yield p
+    proc.kill()
+    proc.wait()
+
+
+def _post(port, headers, body=b'{"action": "lock"}', path="/power"):
+    """POST with exactly these headers. The "lock" action only answers ok; it runs nothing."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.putrequest("POST", path, skip_host=True, skip_accept_encoding=True)
+    for key, value in headers.items():
+        conn.putheader(key, value)
+    conn.putheader("Content-Length", str(len(body)))
+    conn.endheaders(body)
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    return resp.status, {k.lower(): v for k, v in resp.getheaders()}
+
+
+def test_native_client_headers_are_accepted(port):
+    for headers in ({"Host": "127.0.0.1", "Content-Type": JSON},
+                    {"Host": f"127.0.0.1:{port}", "Content-Type": JSON},
+                    {"Host": "localhost", "Content-Type": "application/json; charset=utf-8"}):
+        assert _post(port, headers)[0] == 200, headers
+
+
+def test_request_with_an_origin_is_refused(port):
+    for origin in ("https://example.com", "null"):
+        assert _post(port, {"Host": "127.0.0.1", "Content-Type": JSON, "Origin": origin})[0] == 403, origin
+
+
+def test_non_json_content_type_is_refused(port):
+    for headers in ({"Host": "127.0.0.1", "Content-Type": "text/plain"},
+                    {"Host": "127.0.0.1", "Content-Type": "application/x-www-form-urlencoded"},
+                    {"Host": "127.0.0.1"}):
+        assert _post(port, headers)[0] == 403, headers
+
+
+def test_foreign_host_is_refused(port):
+    # A DNS-rebinding page reaches 127.0.0.1 under its own host name.
+    for host in ("attacker.example", "x"):
+        assert _post(port, {"Host": host, "Content-Type": JSON})[0] == 403, host
+
+
+def test_refusal_happens_before_the_body_is_read(port):
+    status, _ = _post(port, {"Host": "127.0.0.1", "Content-Type": "text/plain", "Origin": "null"}, body=b"not json")
+    assert status == 403
+
+
+def test_responses_carry_no_cors_headers(port):
+    status, headers = _post(port, {"Host": "127.0.0.1", "Content-Type": JSON})
+    assert status == 200
+    assert "access-control-allow-origin" not in headers
+```
+
+Run: `python -m pytest tests/test_aurorad_http.py -q -p no:cacheprovider`
+Expected: `5 failed, 1 passed` (only `test_native_client_headers_are_accepted` passes; the refusal tests get 200 or 400, and the CORS test finds the header).
+
+- [ ] **Step 0b: Refuse browser requests in `aurorad`**
+
+In `shell/aurorad.py`:
+
+1. Directly above `class H(BaseHTTPRequestHandler):`, insert:
+
+```python
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
+def browser_request(headers):
+    """True if a web page could have sent this request. Browsers add Origin to cross-origin
+    POSTs, can't send a JSON Content-Type cross-origin without a preflight (refused below),
+    and a DNS-rebinding page arrives with its own Host. The native shell, the settings app
+    and the daybreak CLI send JSON, no Origin, and Host 127.0.0.1."""
+    if headers.get("Origin") is not None:
+        return True
+    ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    host = (headers.get("Host") or "").strip().lower()
+    if not host.endswith("]"):
+        host = host.rsplit(":", 1)[0]
+    return ctype != "application/json" or host not in LOCAL_HOSTS
+
+
+```
+
+2. In `_send`, delete these two lines:
+
+```python
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+```
+
+3. Replace
+
+```python
+    def do_OPTIONS(self): self._send({})
+```
+
+with
+
+```python
+    def do_OPTIONS(self): self._send({"error": "cross-origin requests are not allowed"}, 403)
+```
+
+4. Replace the first line of `do_POST`'s body
+
+```python
+        n = int(self.headers.get("Content-Length", 0))
+```
+
+with
+
+```python
+        if browser_request(self.headers):
+            return self._send({"error": "requests from web pages are not allowed"}, 403)
+        n = int(self.headers.get("Content-Length", 0))
+```
+
+- [ ] **Step 0c: Make the settings app send a local Host**
+
+In `shell/aurora-desktop/aurora-settings.c`, `sysd_send` sends `Host: x`, which Step 0b refuses. Replace both occurrences of `HTTP/1.0\r\nHost: x\r\n` with `HTTP/1.0\r\nHost: 127.0.0.1\r\n` (exactly 2). `aurora-shell.c` already sends `Host: 127.0.0.1` with a JSON Content-Type on every POST, and `shell/daybreak` uses urllib with a JSON Content-Type, so neither changes.
+
+- [ ] **Step 0d: Run the tests**
+
+Run: `python -m pytest tests/test_aurorad_http.py tests/test_aurorad_ask.py -q -p no:cacheprovider`
+Expected: `8 passed`
+
+Run: `python -m pytest tests -q -p no:cacheprovider`
+Expected: `92 passed`
+
+- [ ] **Step 0e: Commit**
+
+```bash
+git add shell/aurorad.py shell/aurora-desktop/aurora-settings.c tests/test_aurorad_http.py
+git commit -m "aurorad: refuse requests a web page could send (Origin, non-JSON body, foreign Host)"
+```
 
 - [ ] **Step 1: Add the build-check script and LF rule**
 
@@ -1380,7 +1547,7 @@ Expected: `aurora-shell built: ...`, then `no new warnings`. Line numbers are st
 - [ ] **Step 7: Run the Python suite (unchanged by this task)**
 
 Run: `python -m pytest tests -q`
-Expected: `86 passed`
+Expected: `92 passed`
 
 - [ ] **Step 8: Commit**
 
@@ -1443,7 +1610,7 @@ with:
 In `shell/index.html`, insert after line 1 (`<!doctype html>`):
 
 ```html
-<!-- Legacy web shell (Firefox kiosk, scripts 10 and 12). The current desktop is shell/aurora-desktop/aurora-shell.c. -->
+<!-- Legacy web shell (Firefox kiosk, scripts 10 and 12). The current desktop is shell/aurora-desktop/aurora-shell.c. aurorad refuses requests from web pages (spec 5.4), so this page can no longer reach it. -->
 ```
 
 In `shell/aurora-bridge.js`, replace the first two lines:
@@ -1703,7 +1870,7 @@ with:
 - [ ] **Step 5: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `94 passed`
+Expected: `100 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -1816,7 +1983,7 @@ Run: `python -m pytest tests/test_aura_eval.py -q`
 Expected: `14 passed`
 
 Run: `python -m pytest tests -q`
-Expected: `96 passed`
+Expected: `102 passed`
 
 Run: `python tests/aura_eval.py --summary`
 Expected: the baseline row prints with `-` under "system facts, no tool".
@@ -1899,7 +2066,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `96 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `102 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -2068,7 +2235,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `96 passed`.
+Then run `python -m pytest tests -q`. Expected: `102 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
