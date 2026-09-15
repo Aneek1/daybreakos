@@ -5,7 +5,7 @@ fully custom desktop environment — **Aurora Shell**, written in C with GTK3 an
 `gtk-layer-shell` over the `labwc` Wayland compositor. Not a browser kiosk and
 not an off-the-shelf desktop: the top bar, dock, app launcher, wallpaper, and
 the **Aura** assistant are all Aurora's own code. Aura is an on-device LLM
-(llama.cpp + a bundled Qwen2.5 model) that both chats and controls the desktop —
+(llama.cpp + a quantized Llama-3.2-1B-Instruct model) that both chats and controls the desktop —
 "open a terminal", "system status", "set brightness to 40" — running entirely
 offline, no cloud.
 
@@ -75,12 +75,15 @@ finished packages are skipped via stamp files in `$LFS/var/lib/aurora-build/`.
   is compiled in script 13 against GTK3 + `gtk-layer-shell`; `style.css` carries
   the "daybreak" theme. The GTK3 stack is built from `config/extras.list` — the
   pragmatic deviation from "pure" LFS, and the longest part of scripts 10/13.
-- **Aura is a real on-device LLM.** Script 13 builds `llama-server` (llama.cpp)
-  and bundles a quantized **Qwen2.5-3B-Instruct** GGUF. `aurorad` exposes `/ask`,
-  which runs deterministic fast-paths for common commands (open terminal, open
-  app, status, brightness, power) and defers open-ended chat to the model. It's
-  a small model on CPU, so answers are useful but not cloud-grade; swap the GGUF
-  in `/opt/aura/models` for a larger one if you have the RAM.
+- **Aura is a real on-device LLM.** Script 13 builds `llama-server` (llama.cpp).
+  The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by
+  script 02 or downloaded after install with "Set up Aura (AI)". `aurorad`
+  exposes `/ask`, which runs deterministic fast-paths for common commands (open
+  terminal, open app, status, brightness) and defers open-ended chat to the
+  model. Power off and restart never run from Aura directly: it asks, and only a
+  click on its Power off / Restart button does it. It's a small model on CPU, so
+  answers are useful but not cloud-grade; swap the GGUF in `/opt/aura/models`
+  for a larger one if you have the RAM.
 - `llama-server`'s shared libs are installed to `/usr/lib` (its build tree under
   `/sources` is excluded from the squashfs), and the launcher auto-selects the
   largest bundled model.
