@@ -12,7 +12,7 @@ def test_build_prompt_lists_tools_and_forbids_invention():
     tools = aura_llm.load_tools()
     system, user = aura_llm.build_prompt(tools, "open files")
     assert "set_brightness" in system and "open_app" in system
-    assert "Never invent" in system
+    assert "never invent" in system.lower()
     assert user == "open files"
 
 def test_parse_extracts_tool_calls():
@@ -61,11 +61,14 @@ def test_route_executes_system_tool_and_marks_ran():
     assert actions == [{"cmd": "set_brightness", "args": {"percent": 40}, "ran": True}]
     assert "brightness 40%" in notes[0]
 
+UI_TOOLS = [{"name": "show_panel", "side": "ui", "description": "Show a shell panel.",
+             "args": {"panel": "panel name"}}]
+
 def test_route_defers_ui_tool_unrun():
-    tools = aura_llm.load_tools()
+    # The native registry has no UI-side tools; the routing rule is still tested with one.
     actions, notes = aura_llm.route(
-        [{"cmd": "open_app", "args": {"app": "files"}}], tools, {})
-    assert actions == [{"cmd": "open_app", "args": {"app": "files"}, "ran": False}]
+        [{"cmd": "show_panel", "args": {"panel": "widgets"}}], UI_TOOLS, {})
+    assert actions == [{"cmd": "show_panel", "args": {"panel": "widgets"}, "ran": False}]
 
 def test_route_drops_invalid_calls():
     tools = aura_llm.load_tools()
@@ -107,16 +110,16 @@ def _tools(): return aura_llm.load_tools()
 
 def test_ask_happy_path_executes_and_returns_actions(monkeypatch):
     monkeypatch.setattr(aura_llm, "call_llama",
-        lambda s, u: '{"reply":"Opening Files.","tool_calls":[{"cmd":"open_app","args":{"app":"files"}}]}')
-    out = aura_llm.ask("open files", executors={}, status={})
-    assert out["actions"] == [{"cmd": "open_app", "args": {"app": "files"}, "ran": False}]
+        lambda s, u: '{"reply":"Opening Files.","tool_calls":[{"cmd":"open_app","args":{"name":"files"}}]}')
+    out = aura_llm.ask("open files", executors={"open_app": lambda a: None}, status={})
+    assert out["actions"] == [{"cmd": "open_app", "args": {"name": "files"}, "ran": True}]
     assert "Opening Files" in out["a"]
 
 def test_ask_merges_system_notes_into_reply(monkeypatch):
     monkeypatch.setattr(aura_llm, "call_llama",
         lambda s, u: '{"reply":"Done.","tool_calls":[{"cmd":"set_brightness","args":{"percent":40}}]}')
     execs = {"set_brightness": lambda a: "brightness set to 40%"}
-    out = aura_llm.ask("dim to 40", executors=execs, status={})
+    out = aura_llm.ask("set brightness to 40", executors=execs, status={})
     assert out["actions"][0]["ran"] is True
     assert "brightness set to 40%" in out["a"]
 

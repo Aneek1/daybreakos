@@ -16,10 +16,11 @@ def test_no_power_tool_exposed():
     names = {t["name"] for t in TOOLS}
     assert "power" not in names and "poweroff" not in names and "reboot" not in names
 
-def test_names_match_index_commands():
-    """Every registry name must be a real COMMANDS key in index.html (no drift)."""
-    html = (ROOT / "shell/index.html").read_text(encoding="utf-8")
-    block = html[html.index("const COMMANDS={"): html.index("// ordered rules")]
-    command_keys = set(re.findall(r"(\w+):\(", block))
+def test_every_tool_has_an_aurorad_executor():
+    """The native desktop runs every registry tool through aurorad's /ask executors."""
+    src = (ROOT / "shell/aurorad.py").read_text(encoding="utf-8")
+    start = src.index("executors = {")
+    block = src[start: src.index("\n            }", start)]
+    names = set(re.findall(r'^\s*"(\w+)":', block, re.M))
     for t in TOOLS:
-        assert t["name"] in command_keys, f"{t['name']} not in index.html COMMANDS"
+        assert t["name"] in names, f"{t['name']} has no executor in aurorad.py"
