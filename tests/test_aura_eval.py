@@ -112,3 +112,19 @@ def test_results_problem_refuses_failed_requests_and_overwrites(tmp_path):
 def test_health_url_ignores_the_path():
     assert aura_eval.health_url("http://127.0.0.1:8080/v1/chat/completions") == "http://127.0.0.1:8080/health"
     assert aura_eval.health_url("http://localhost:9000/proxy/chat") == "http://localhost:9000/health"
+
+def test_system_facts_without_tool_flags_invented_readings():
+    assert aura_eval.states_system_facts("Battery: 92%, Network: 4.2 Mbps", [])
+    assert not aura_eval.states_system_facts("Battery: 92%", [{"cmd": "system_status", "args": {}, "ran": True}])
+    assert not aura_eval.states_system_facts("Opening a terminal.", [])
+    assert not aura_eval.states_system_facts("Hello! I can do 3 things.", [])
+    case = {"say": "how much battery is left", "kind": "tool", "expect": "system_status"}
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Battery level: 100%"}'))
+    assert row["system_facts_without_tool"] is True
+
+def test_table_reads_results_recorded_before_the_system_facts_metric():
+    m = aura_eval.summarize([{"kind": "negative", "expect": "none", "server_error": False, "latency_ms": 1.0,
+                              "model_false_action": False, "pipeline_false_action": False, "bad_reply": False}])
+    m.pop("system_facts_without_tool")
+    result = {"meta": {"model_name": "old", "decoding": "free", "date": "2026-09-15"}, "metrics": m}
+    assert "| old | free |" in aura_eval.format_table([result], markdown=True)

@@ -53,6 +53,16 @@ def valid_response_json(llm, raw):
     return False
 
 
+SYSTEM_WORDS = ("battery", "uptime", "network", "mbps", "brightness", "cpu", "memory")
+
+
+def states_system_facts(reply, actions):
+    """True if a reply quotes numbers about the machine although no tool ran. A heuristic:
+    it catches invented readings such as 'Battery: 92%', and can also flag harmless replies."""
+    text = (reply or "").lower()
+    return not actions and any(ch.isdigit() for ch in text) and any(word in text for word in SYSTEM_WORDS)
+
+
 def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
     """Score one case at model level (raw output) and pipeline level (ask(), nothing really runs).
 
@@ -86,6 +96,7 @@ def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
         "model_args": first["args"] if first else None,
         "pipeline_cmd": out["actions"][0]["cmd"] if out["actions"] else None,
         "reply": out["a"], "bad_reply": llm._reply_is_bad(out["a"]),
+        "system_facts_without_tool": states_system_facts(out["a"], out["actions"]),
     }
     if case["kind"] == "tool":
         row["model_correct"] = row["model_cmd"] == case["expect"]
@@ -138,6 +149,7 @@ def summarize(rows):
         "false_action_pipeline": _rate(rows, "pipeline_false_action"),
         "valid_response_json_on_tool_cases": _rate(rows, "valid_response_json"),
         "bad_reply": _rate(rows, "bad_reply"),
+        "system_facts_without_tool": _rate(rows, "system_facts_without_tool"),
         "latency_ms_p50": _percentile(latencies, 50),
         "latency_ms_p95": _percentile(latencies, 95),
         # _ACTION_CUE drops a call when the request has no action word; count correct calls it dropped
@@ -148,8 +160,9 @@ def summarize(rows):
 
 
 HEADER = ["model", "decoding", "date", "tool acc (model)", "tool acc (pipeline)", "args acc",
-          "false action (model)", "false action (pipeline)", "valid response JSON", "bad reply", "p50 ms",
+          "false action (model)", "false action (pipeline)", "valid response JSON", "bad reply", "system facts, no tool", "p50 ms",
           "p95 ms"]
+NO_METRIC = {"count": 0, "total": 0, "rate": None}  # results recorded before a metric existed
 
 
 def _pct(metric):
@@ -172,7 +185,8 @@ def format_table(results, markdown):
                      _pct(m["tool_accuracy_model"]), _pct(m["tool_accuracy_pipeline"]),
                      _pct(m["args_accuracy_model"]), _pct(m["false_action_model"]),
                      _pct(m["false_action_pipeline"]), _pct(m["valid_response_json_on_tool_cases"]),
-                     _pct(m["bad_reply"]), _ms(m["latency_ms_p50"]), _ms(m["latency_ms_p95"])])
+                     _pct(m["bad_reply"]), _pct(m.get("system_facts_without_tool", NO_METRIC)),
+                     _ms(m["latency_ms_p50"]), _ms(m["latency_ms_p95"])])
     if markdown:
         lines = ["| " + " | ".join(HEADER) + " |", "|" + "---|" * len(HEADER)]
         lines += ["| " + " | ".join(row) + " |" for row in rows]
