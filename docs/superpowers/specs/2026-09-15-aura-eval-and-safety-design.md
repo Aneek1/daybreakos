@@ -1,7 +1,7 @@
 # Aura evaluation, power safety and model comparison: design
 
 **Date:** 2026-09-15
-**Status:** Approved direction; spec awaiting review
+**Status:** Approved 2026-09-15; §5.2 amended the same day (confirmation handled by the panel and the root service, no server-side token)
 **Depends on:** `shell/aura_llm.py`, `shell/aurorad.py` (`/ask`, `/system/power`), `shell/aurora-desktop/aurora-shell.c` (Aura panel), `config/aura-tools.json`, llama.cpp pinned at `b4589`
 **Supersedes, in part:** `2026-07-10-aura-local-llm-design.md` (tool routing and the shared web-shell registry, see §2)
 
@@ -14,13 +14,13 @@ Aura works, but nothing measures how well, and three problems are documented:
 - **Power can be triggered without confirmation**, in three places:
   - `power` is in the model's tool list (`config/aura-tools.json`), against the July spec's own safety rule.
   - `aurorad` has a `power` executor (`aurorad.py:888-899`).
-  - The regex shortcut in `/ask` (`aurorad.py:925-928`) turns "shut down", "power off", "turn off", "restart" or "reboot" into `systemctl` immediately. "Turn off wi-fi" matches "turn off".
+  - The regex shortcut in `/ask` (`aurorad.py:925-928`) turns "shut down", "power off", "turn off", "restart" or "reboot" into `systemctl` immediately. "Turn off wi-fi" matches "turn off". It also runs `systemctl` from the non-root session service (port 7212), which systemd denies without polkit, so typed power requests most likely fail silently today.
 
 The current test fixture cannot measure anything:
 - 8 of the 10 expected tools in `tests/aura_intents.jsonl` are not in the registry.
 - `tests/test_aura_llm_live.sh` breaks on apostrophes.
 - No results were ever recorded.
-- 8 of 30 unit tests fail on `master` (46a4e28).
+- 9 of 31 tests fail on `master` (46a4e28), including the black-box `tests/test_aurorad_ask.py`.
 
 The README says Aura runs "Qwen2.5-3B"; every script actually ships Llama-3.2-1B-Instruct Q4_K_M.
 
@@ -105,38 +105,35 @@ One JSON object per line, with `say`, `expect` and optional `args`. It replaces 
 
 ### 5.2 Typed power requests ask for confirmation
 
-- **Shared logic:** new stdlib module `shell/aura_confirm.py` holding pending confirmations. It gets unit tests.
-  - `create(action) -> token`: random URL-safe token, single use, expires after 30 s.
-  - `resolve(token, accept, now) -> "run" | "cancelled" | "expired" | "unknown"`.
-  - The clock is injectable for tests.
-- **`/ask` regex shortcut for shutdown or restart:** it no longer runs anything. It responds with:
+`aurorad` runs as two processes: the session service on port 7212 handles `/ask`, and the root service on port 7213 (`systemd/aurorad-system.service`) handles `/system/*`, including `/system/power`. A confirmation token created by one could not be redeemed by the other, so confirmation lives in the panel.
 
-  ```json
-  {"a": "Power off now?", "actions": [], "confirm": {"token": "<token>", "action": "poweroff", "label": "Power off", "expires_in": 30}}
-  ```
+- **Recognising the request:** new stdlib module `shell/aura_power.py`.
+  - `power_request(text) -> "poweroff" | "reboot" | None` replaces the regex in `/ask`. "Turn off" and "switch off" only count with a device word ("the computer/pc/laptop/machine/system"), so "turn off wi-fi" and "turn off night light" no longer match.
+  - `confirm_payload(action)` returns the `/ask` response:
 
-  ("Restart now?" / `reboot` / "Restart" for restart requests.) The regex is tightened so "turn off wi-fi" and "turn off night light" no longer match: "turn off" alone is removed, and "turn off the computer/pc/laptop/machine" is kept.
-- **New `POST /ask/confirm`** with `{"token", "accept"}`:
-  - `run`: executes through the same root code path as `POST /system/power` and replies "Shutting down…" or "Restarting…".
-  - `cancelled` → "Cancelled."
-  - `expired` → "That request expired. Ask again if you still want to."
-  - `unknown` → "Nothing to confirm."
+    ```json
+    {"a": "Power off now?", "actions": [], "confirm": {"action": "poweroff", "label": "Power off", "expires_in": 30}}
+    ```
+
+    ("Restart now?" / `reboot` / "Restart" for restart requests.)
+- **`/ask`:** checks `power_request` before any other shortcut and returns the payload. It never runs `systemctl` itself any more; it previously did, from the non-root session service, where systemd denies it.
 - **Native shell (`aurora-shell.c`):**
-  - `aura_ask` also extracts the optional `confirm` object (`token`, `action`, `label`) with the same minimal string scanning it uses for `"a"`. Tokens are URL-safe, so no escaping is needed.
-  - `AuraResult` carries these fields.
+  - The worker keeps the raw `/ask` JSON and extracts the optional `confirm` fields (`action`, `label`, `expires_in`) with the same minimal string scanning it uses for `"a"`.
   - `aura_apply_result` adds a button row under the reply: **[label]** and **[Cancel]**.
-  - Clicking either posts `/ask/confirm` on the worker thread, disables both buttons, and shows the reply in the same bubble.
-  - A 30-second `g_timeout_add_seconds` disables the buttons and appends "Expired." if neither was clicked.
+  - The action button calls the existing `power_action()`, which posts to the root service's `/system/power`, the same path as the Daybreak menu's Restart and Shut Down items. Cancel appends "Cancelled."
+  - A `g_timeout_add_seconds(expires_in)` disables both buttons and appends "Expired." if neither was clicked.
 - **Legacy web shell:** it ignores `confirm`, so it shows the question with no buttons. Nothing runs, which is the safe default.
+- **Unchanged trust boundary:** `/system/power` stays callable by local processes, as it already is (§3).
 
 ### 5.3 Tests
 
-- **`tests/test_aura_confirm.py`:** create and accept, cancel, expiry (injected clock), single use, unknown token.
+- **`tests/test_aura_power.py`:** power phrases recognised; near-misses ("turn off wi-fi", "switch off bluetooth", "power saving mode") ignored; the exact `confirm` JSON text the C parser relies on.
+- **`tests/test_aurorad_ask.py`:** a black-box test that a typed "shut down" returns the confirmation payload even when the stub model asks for a tool.
 - **`tests/test_aura_tools.py`:**
   - keep `test_no_power_tool_exposed`
   - replace `test_names_match_index_commands` with `test_every_tool_has_an_aurorad_executor`, which checks the `executors = {…}` block in `aurorad.py`
 - **Shortcut regex:** tests that "turn off wi-fi" is not a power request and "shut down" is.
-- **C change:** verified by building `aurora-shell` with the existing script-13 compile line in the build container, and by a VM smoke test (ask "shut down", click Cancel, nothing happens; ask again, wait 30 s, buttons disable).
+- **C change:** compiled in WSL Ubuntu with the same flags as the ISO build before it is committed, then a VM smoke test: ask "shut down", click Cancel, nothing happens; ask again and wait 30 s, the buttons disable.
 
 ## 6. Test suite realignment (phase B, same change)
 
@@ -147,7 +144,7 @@ The 8 failing tests are updated to the native desktop's contract (§2):
 - The prompt test checks for "never invent" case-insensitively.
 - The power tests pass once §5.1 lands.
 
-**Gate:** `python -m pytest tests/test_aura_tools.py tests/test_aura_llm.py tests/test_aura_confirm.py` passes with no failures on Windows (host) Python.
+**Gate:** `python -m pytest tests` passes with no failures on the host Python (Windows), including `tests/test_aurorad_ask.py`.
 
 ## 7. Schema-constrained output (phase C)
 
