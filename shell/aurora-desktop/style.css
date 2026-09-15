@@ -327,3 +327,5 @@ menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.
 .inst-title { font-size: 30px; font-weight: 800; color: #ffffff; }
 .inst-sect  { font-size: 12px; font-weight: 700; color: #98a2ba; }
 .inst-logo  { font-size: 34px; color: #34e0c8; }
+.aura-confirm button { border-radius: 10px; padding: 6px 14px; }
+.aura-confirm button.destructive-action { background-color: #e0564f; color: #ffffff; }
