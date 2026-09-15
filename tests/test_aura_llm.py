@@ -233,3 +233,35 @@ def test_ask_uses_schema_only_when_enabled(monkeypatch):
 def test_schema_default(monkeypatch):
     monkeypatch.delenv("AURA_LLM_SCHEMA", raising=False)
     assert aura_llm.schema_enabled() is (aura_llm.SCHEMA_DEFAULT == "1")
+
+CUT_OFF = ('{"reply": "Photosynthesis is the process by which green plants use sunlight '
+           'to turn water and carbon dioxide into')
+
+def test_ask_keeps_a_schema_reply_cut_off_at_the_token_limit(monkeypatch):
+    monkeypatch.setenv("AURA_LLM_SCHEMA", "1")
+    monkeypatch.setattr(aura_llm, "model_installed", lambda: True)
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u, schema=None: CUT_OFF)
+    out = aura_llm.ask("explain photosynthesis", executors={}, status={})
+    assert out["a"].startswith("Photosynthesis") and "warming up" not in out["a"]
+    assert out["actions"] == []
+
+def test_parse_cut_off_reply_decodes_escapes_but_never_half_written_calls():
+    bs = chr(92)
+    assert aura_llm.parse_model_output('{"reply": "Say ' + bs + '"hi' + bs + '" now' + bs) == \
+        {"reply": 'Say "hi" now', "tool_calls": []}
+    assert aura_llm.parse_model_output('{"reply": "Caf' + bs + 'u00e9 ' + bs + 'u00')["reply"] == "Café"
+    half_call = '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_te'
+    assert aura_llm.parse_model_output(half_call)["reply"] == half_call
+
+def test_call_llama_gives_schema_mode_room_for_the_json_wrapper(monkeypatch):
+    bodies = []
+    class FakeResp:
+        def read(self): return b'{"choices":[{"message":{"content":"{}"}}]}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen",
+                        lambda req, timeout=None: bodies.append(aura_llm.json.loads(req.data)) or FakeResp())
+    aura_llm.call_llama("S", "U")
+    aura_llm.call_llama("S", "U", schema={"type": "object"})
+    assert bodies[0]["max_tokens"] == 128
+    assert bodies[1]["max_tokens"] == 192

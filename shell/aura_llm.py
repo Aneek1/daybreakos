@@ -126,7 +126,25 @@ def parse_model_output(text):
                       "args": c.get("args") if isinstance(c.get("args"), dict) else {}}
                      for c in calls if isinstance(c, dict) and c.get("cmd")]
             return {"reply": str(obj.get("reply") or "").strip(), "tool_calls": clean}
+    cut = _cut_off_reply(text)
+    if cut is not None:
+        return {"reply": cut, "tool_calls": []}
     return {"reply": text, "tool_calls": []}
+
+# A schema-mode reply cut off at max_tokens has no closing brace. When the cut is
+# inside the "reply" string, keep that text (free mode shows the same text cut
+# short). If the reply string closed and the cut is later, a tool call may be
+# half written, so nothing is recovered and the reply is treated as bad.
+_CUT_REPLY = re.compile(r'\s*\{\s*"reply"\s*:\s*"((?:[^"\\]|\\u[0-9a-fA-F]{4}|\\[^u])*)(\\(?:u[0-9a-fA-F]{0,3})?)?$')
+
+def _cut_off_reply(text):
+    m = _CUT_REPLY.match(text)
+    if not m:
+        return None
+    try:
+        return json.loads('"' + m.group(1) + '"').strip()
+    except ValueError:
+        return None
 
 def _tool_index(tools):
     return {t["name"]: t for t in tools}
@@ -231,7 +249,8 @@ def call_llama(system, user, schema=None):
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": user}],
         "temperature": 0.2,
-        "max_tokens": 128,
+        # Schema mode spends ~10 tokens on the JSON wrapper around the same reply.
+        "max_tokens": 128 if schema is None else 192,
     }
     if schema is not None:
         payload["response_format"] = {"type": "json_schema", "json_schema": {"schema": schema}}
