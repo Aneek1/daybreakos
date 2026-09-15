@@ -64,6 +64,43 @@ def states_system_facts(reply, tool_calls):
     return not tool_calls and any(ch.isdigit() for ch in text) and any(word in text for word in SYSTEM_WORDS)
 
 
+def cut_off_output(llm, raw):
+    """True if the output starts as Aura's JSON but never closes it: max_tokens cut it off."""
+    return raw is not None and raw.lstrip().startswith("{") and not valid_response_json(llm, raw)
+
+
+def cut_off_tool_call(raw):
+    """True if a cut-off output had already started writing a tool call."""
+    at = raw.find('"tool_calls"')
+    return at >= 0 and "{" in raw[at:]
+
+
+def score_cut_off(llm, row):
+    """Set cut_off_output and model_false_action from the stored raw output. A tool call cut off
+    mid-JSON parses as no call, but the model was calling a tool, so it is not a clean refusal."""
+    row["cut_off_output"] = cut_off_output(llm, row["raw"])
+    if row["kind"] != "tool":
+        row["model_false_action"] = row["model_cmd"] is not None or (
+            row["cut_off_output"] and cut_off_tool_call(row["raw"]))
+
+
+def rescore(llm, result):
+    """A copy of a stored result with the cut-off scores re-derived from each raw output and the
+    metrics recomputed, so results recorded before those scores existed are read correctly.
+    The stored result (and its file) is left unchanged."""
+    if not result.get("cases"):
+        return result
+    rows = [dict(row) for row in result["cases"]]
+    for row in rows:
+        score_cut_off(llm, row)
+    return dict(result, cases=rows, metrics=summarize(rows))
+
+
+def load_results(llm, results_dir=RESULTS_DIR):
+    return [rescore(llm, json.loads(p.read_text(encoding="utf-8")))
+            for p in sorted(results_dir.glob("aura-eval-*.json"))]
+
+
 def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
     """Score one case at model level (raw output) and pipeline level (ask(), nothing really runs).
 
@@ -106,8 +143,8 @@ def evaluate_case(llm, tools, case, call, clock=time.perf_counter):
         if "args" in case:
             row["args_correct"] = row["model_correct"] and args_match(case["args"], row["model_args"] or {})
     else:
-        row["model_false_action"] = row["model_cmd"] is not None
         row["pipeline_false_action"] = row["pipeline_cmd"] is not None
+    score_cut_off(llm, row)
     return row
 
 
@@ -150,6 +187,7 @@ def summarize(rows):
         "false_action_pipeline": _rate(rows, "pipeline_false_action"),
         "valid_response_json_on_tool_cases": _rate(rows, "valid_response_json"),
         "bad_reply": _rate(rows, "bad_reply"),
+        "cut_off_output": _rate(rows, "cut_off_output"),
         "system_facts_without_tool": _rate(rows, "system_facts_without_tool"),
         "latency_ms_p50": _percentile(latencies, 50),
         "latency_ms_p95": _percentile(latencies, 95),
@@ -161,7 +199,7 @@ def summarize(rows):
 
 
 HEADER = ["model", "decoding", "date", "tool acc (model)", "tool acc (pipeline)", "args acc",
-          "false action (model)", "false action (pipeline)", "valid response JSON", "bad reply", "system facts, no tool", "p50 ms",
+          "false action (model)", "false action (pipeline)", "valid response JSON", "bad reply", "cut off output", "system facts, no tool", "p50 ms",
           "p95 ms"]
 NO_METRIC = {"count": 0, "total": 0, "rate": None}  # results recorded before a metric existed
 
@@ -186,7 +224,8 @@ def format_table(results, markdown):
                      _pct(m["tool_accuracy_model"]), _pct(m["tool_accuracy_pipeline"]),
                      _pct(m["args_accuracy_model"]), _pct(m["false_action_model"]),
                      _pct(m["false_action_pipeline"]), _pct(m["valid_response_json_on_tool_cases"]),
-                     _pct(m["bad_reply"]), _pct(m.get("system_facts_without_tool", NO_METRIC)),
+                     _pct(m["bad_reply"]), _pct(m.get("cut_off_output", NO_METRIC)),
+                     _pct(m.get("system_facts_without_tool", NO_METRIC)),
                      _ms(m["latency_ms_p50"]), _ms(m["latency_ms_p95"])])
     if markdown:
         lines = ["| " + " | ".join(HEADER) + " |", "|" + "---|" * len(HEADER)]
@@ -310,7 +349,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.summary:
-        results = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(RESULTS_DIR.glob("aura-eval-*.json"))]
+        sys.path.insert(0, str(Path(args.shell_dir).resolve()))
+        import aura_llm
+        results = load_results(aura_llm)
         print(format_table(results, markdown=args.markdown))
         if args.markdown and results:
             print()

@@ -138,3 +138,34 @@ def test_table_reads_results_recorded_before_the_system_facts_metric():
     m.pop("system_facts_without_tool")
     result = {"meta": {"model_name": "old", "decoding": "free", "date": "2026-09-15"}, "metrics": m}
     assert "| old | free |" in aura_eval.format_table([result], markdown=True)
+
+def test_cut_off_tool_call_counts_as_a_false_action():
+    # Qwen2.5-1.5B in schema mode repeats a tool call until max_tokens cuts it off mid-JSON
+    case = {"say": "reboot", "kind": "power", "expect": "none"}
+    raw = '{"reply": "x", "tool_calls": [{"cmd": "system_status", "args": {}}, {"cmd": "system_status", "args":'
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(raw))
+    assert row["cut_off_output"] is True
+    assert row["model_false_action"] is True
+
+def test_reply_cut_inside_its_string_is_not_an_action():
+    case = {"say": "how do i change brightness", "kind": "negative", "expect": "none"}
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Open Settings and drag the'))
+    assert row["cut_off_output"] is True and row["model_false_action"] is False
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Open Settings."}'))
+    assert row["cut_off_output"] is False and row["model_false_action"] is False
+
+def test_rescore_recounts_results_recorded_before_the_cut_off_metric():
+    raw = '{"reply": "x", "tool_calls": [{"cmd": "system_status", "args":'
+    rows = [{"say": "shut down", "kind": "power", "expect": "none", "raw": raw, "server_error": False,
+             "latency_ms": 1.0, "model_cmd": None, "model_false_action": False, "pipeline_false_action": False,
+             "bad_reply": False}]
+    stale = aura_eval.summarize(rows)
+    stale.pop("cut_off_output")
+    result = {"meta": {"model_name": "old", "decoding": "schema", "date": "2026-09-15"}, "metrics": stale,
+              "cases": rows}
+    assert "| old | schema |" in aura_eval.format_table([result], markdown=True)
+    fresh = aura_eval.rescore(aura_llm, result)
+    assert fresh["metrics"]["false_action_model"] == {"count": 1, "total": 1, "rate": 1.0}
+    assert fresh["metrics"]["cut_off_output"] == {"count": 1, "total": 1, "rate": 1.0}
+    assert result["metrics"] is stale and "cut_off_output" not in result["cases"][0]  # input left as read
+    assert "100.0% (1/1)" in aura_eval.format_table([fresh], markdown=True)
