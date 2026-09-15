@@ -208,4 +208,4 @@ The 8 failing tests are updated to the native desktop's contract (§2):
 - **Small test set:** 73 cases give coarse percentages (one case is 1.4 points). Results are reported with counts, not just percentages.
 - **Host vs distro speed:** only relative comparisons on one host are claimed.
 - **Minimal JSON scanning in C:** the `confirm` parser relies on `aurorad` emitting that exact shape. A unit test on the Python side pins the shape.
-- **Schema mode and chat quality:** forcing JSON may make chat replies terser; the bad-reply rate and a manual read of chat cases are recorded.
+- **Schema mode and chat quality:** forcing JSON may make chat replies terser; the bad-reply rate and a manual read of chat cases are recorded. The JSON wrapper also costs tokens, so schema mode gets a larger `max_tokens` (192 against 128), and a reply cut off inside its `reply` string is shown cut short, as in free mode. Without that it would be replaced by the "still warming up" fallback, which `bad_reply` scores as clean.

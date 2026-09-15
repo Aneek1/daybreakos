@@ -1766,6 +1766,38 @@ def test_ask_uses_schema_only_when_enabled(monkeypatch):
 def test_schema_default(monkeypatch):
     monkeypatch.delenv("AURA_LLM_SCHEMA", raising=False)
     assert aura_llm.schema_enabled() is (aura_llm.SCHEMA_DEFAULT == "1")
+
+CUT_OFF = ('{"reply": "Photosynthesis is the process by which green plants use sunlight '
+           'to turn water and carbon dioxide into')
+
+def test_ask_keeps_a_schema_reply_cut_off_at_the_token_limit(monkeypatch):
+    monkeypatch.setenv("AURA_LLM_SCHEMA", "1")
+    monkeypatch.setattr(aura_llm, "model_installed", lambda: True)
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u, schema=None: CUT_OFF)
+    out = aura_llm.ask("explain photosynthesis", executors={}, status={})
+    assert out["a"].startswith("Photosynthesis") and "warming up" not in out["a"]
+    assert out["actions"] == []
+
+def test_parse_cut_off_reply_decodes_escapes_but_never_half_written_calls():
+    bs = chr(92)
+    assert aura_llm.parse_model_output('{"reply": "Say ' + bs + '"hi' + bs + '" now' + bs) == \
+        {"reply": 'Say "hi" now', "tool_calls": []}
+    assert aura_llm.parse_model_output('{"reply": "Caf' + bs + 'u00e9 ' + bs + 'u00')["reply"] == "Café"
+    half_call = '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_te'
+    assert aura_llm.parse_model_output(half_call)["reply"] == half_call
+
+def test_call_llama_gives_schema_mode_room_for_the_json_wrapper(monkeypatch):
+    bodies = []
+    class FakeResp:
+        def read(self): return b'{"choices":[{"message":{"content":"{}"}}]}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen",
+                        lambda req, timeout=None: bodies.append(aura_llm.json.loads(req.data)) or FakeResp())
+    aura_llm.call_llama("S", "U")
+    aura_llm.call_llama("S", "U", schema={"type": "object"})
+    assert bodies[0]["max_tokens"] == 128
+    assert bodies[1]["max_tokens"] == 192
 ```
 
 Also update the four existing `call_llama` stubs to accept the new keyword argument. In `test_ask_happy_path_executes_and_returns_actions`, `test_ask_merges_system_notes_into_reply`, `test_ask_falls_back_when_model_down` and `test_ask_falls_back_on_garbage`, change each `lambda s, u:` to `lambda s, u, schema=None:`.
@@ -1773,7 +1805,7 @@ Also update the four existing `call_llama` stubs to accept the new keyword argum
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `python -m pytest tests/test_aura_llm.py tests/test_aura_tools.py -q`
-Expected: 7 failures (`AttributeError` for `response_schema`, `schema_enabled`, `SCHEMA_DEFAULT`; `TypeError` for `schema_mode`; the registry `schema` test).
+Expected: 10 failures (`AttributeError` for `response_schema`, `schema_enabled`, `SCHEMA_DEFAULT`; `TypeError` for `schema_mode` and for `call_llama`'s `schema` keyword; the registry `schema` test; the cut-off reply shown as the warming-up fallback, and returned as raw JSON by `parse_model_output`).
 
 - [ ] **Step 3: Add schemas to the registry**
 
@@ -1868,7 +1900,8 @@ def call_llama(system, user, schema=None):
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": user}],
         "temperature": 0.2,
-        "max_tokens": 128,
+        # Schema mode spends ~10 tokens on the JSON wrapper around the same reply.
+        "max_tokens": 128 if schema is None else 192,
     }
     if schema is not None:
         payload["response_format"] = {"type": "json_schema", "json_schema": {"schema": schema}}
@@ -1899,10 +1932,42 @@ with:
     raw = call_llama(system, user, schema=schema)
 ```
 
+5. In `parse_model_output`, a schema-mode reply cut off at `max_tokens` has no closing brace, so it would come back as raw JSON, be judged a bad reply, and be replaced by the "still warming up" fallback (which `bad_reply` then scores as clean). Replace the end of the function:
+
+```python
+            return {"reply": str(obj.get("reply") or "").strip(), "tool_calls": clean}
+    return {"reply": text, "tool_calls": []}
+```
+
+with:
+
+```python
+            return {"reply": str(obj.get("reply") or "").strip(), "tool_calls": clean}
+    cut = _cut_off_reply(text)
+    if cut is not None:
+        return {"reply": cut, "tool_calls": []}
+    return {"reply": text, "tool_calls": []}
+
+# A schema-mode reply cut off at max_tokens has no closing brace. When the cut is
+# inside the "reply" string, keep that text (free mode shows the same text cut
+# short). If the reply string closed and the cut is later, a tool call may be
+# half written, so nothing is recovered and the reply is treated as bad.
+_CUT_REPLY = re.compile(r'\s*\{\s*"reply"\s*:\s*"((?:[^"\\]|\\u[0-9a-fA-F]{4}|\\[^u])*)(\\(?:u[0-9a-fA-F]{0,3})?)?$')
+
+def _cut_off_reply(text):
+    m = _CUT_REPLY.match(text)
+    if not m:
+        return None
+    try:
+        return json.loads('"' + m.group(1) + '"').strip()
+    except ValueError:
+        return None
+```
+
 - [ ] **Step 5: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `101 passed`
+Expected: `104 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -2015,7 +2080,7 @@ Run: `python -m pytest tests/test_aura_eval.py -q`
 Expected: `14 passed`
 
 Run: `python -m pytest tests -q`
-Expected: `103 passed`
+Expected: `106 passed`
 
 Run: `python tests/aura_eval.py --summary`
 Expected: the baseline row prints with `-` under "system facts, no tool".
@@ -2098,7 +2163,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `103 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `106 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -2267,7 +2332,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `103 passed`.
+Then run `python -m pytest tests -q`. Expected: `106 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
