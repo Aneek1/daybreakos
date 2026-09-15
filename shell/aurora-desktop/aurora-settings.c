@@ -171,9 +171,9 @@ static char *sysd_send(const char *method, const char *path, const char *body) {
     inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
     if (connect(fd, (struct sockaddr *)&sa, sizeof sa) < 0) { close(fd); return NULL; }
     char *req = body
-        ? g_strdup_printf("%s %s HTTP/1.0\r\nHost: x\r\nContent-Type: application/json\r\n"
+        ? g_strdup_printf("%s %s HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
                           "Content-Length: %zu\r\n\r\n%s", method, path, strlen(body), body)
-        : g_strdup_printf("%s %s HTTP/1.0\r\nHost: x\r\n\r\n", method, path);
+        : g_strdup_printf("%s %s HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n", method, path);
     ssize_t off = 0, len = (ssize_t)strlen(req);
     while (off < len) { ssize_t n = write(fd, req + off, len - off); if (n <= 0) break; off += n; }
     g_free(req);

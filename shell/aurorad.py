@@ -730,6 +730,23 @@ def aura_status():
     s["installed"] = aura_model_present()
     return s
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
+def browser_request(headers):
+    """True if a web page could have sent this request. Browsers add Origin to cross-origin
+    POSTs, can't send a JSON Content-Type cross-origin without a preflight (refused below),
+    and a DNS-rebinding page arrives with its own Host. The native shell, the settings app
+    and the daybreak CLI send JSON, no Origin, and Host 127.0.0.1."""
+    if headers.get("Origin") is not None:
+        return True
+    ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    host = (headers.get("Host") or "").strip().lower()
+    if not host.endswith("]"):
+        host = host.rsplit(":", 1)[0]
+    return ctype != "application/json" or host not in LOCAL_HOSTS
+
+
 class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         # ensure_ascii=False so unicode (em-dashes, accents, emoji) goes out as
@@ -737,13 +754,11 @@ class H(BaseHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    def do_OPTIONS(self): self._send({})
+    def do_OPTIONS(self): self._send({"error": "cross-origin requests are not allowed"}, 403)
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
@@ -789,6 +804,8 @@ class H(BaseHTTPRequestHandler):
             self._send({"error": "not found"}, 404)
 
     def do_POST(self):
+        if browser_request(self.headers):
+            return self._send({"error": "requests from web pages are not allowed"}, 403)
         n = int(self.headers.get("Content-Length", 0))
         try: data = json.loads(self.rfile.read(n) or b"{}")
         except json.JSONDecodeError: return self._send({"error": "bad json"}, 400)
