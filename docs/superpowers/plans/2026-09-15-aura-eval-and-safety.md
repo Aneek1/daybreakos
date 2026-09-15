@@ -1702,6 +1702,122 @@ git commit -m "Aura: optional schema-constrained output (AURA_LLM_SCHEMA, off by
 
 ---
 
+### Task 9b: Harness: flag system facts stated without a tool call
+
+The baseline showed the model answering "how much battery is left" with invented readings ("Battery level: 100%") instead of calling `system_status`. `bad_reply` can't see that, so this adds a narrow heuristic metric before Tasks 10-12 measure anything.
+
+**Files:**
+- Modify: `tests/aura_eval.py`, `tests/test_aura_eval.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/test_aura_eval.py`:
+
+```python
+def test_system_facts_without_tool_flags_invented_readings():
+    assert aura_eval.states_system_facts("Battery: 92%, Network: 4.2 Mbps", [])
+    assert not aura_eval.states_system_facts("Battery: 92%", [{"cmd": "system_status", "args": {}, "ran": True}])
+    assert not aura_eval.states_system_facts("Opening a terminal.", [])
+    assert not aura_eval.states_system_facts("Hello! I can do 3 things.", [])
+    case = {"say": "how much battery is left", "kind": "tool", "expect": "system_status"}
+    row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning('{"reply": "Battery level: 100%"}'))
+    assert row["system_facts_without_tool"] is True
+
+def test_table_reads_results_recorded_before_the_system_facts_metric():
+    m = aura_eval.summarize([{"kind": "negative", "expect": "none", "server_error": False, "latency_ms": 1.0,
+                              "model_false_action": False, "pipeline_false_action": False, "bad_reply": False}])
+    m.pop("system_facts_without_tool")
+    result = {"meta": {"model_name": "old", "decoding": "free", "date": "2026-09-15"}, "metrics": m}
+    assert "| old | free |" in aura_eval.format_table([result], markdown=True)
+```
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `python -m pytest tests/test_aura_eval.py -q`
+Expected: `2 failed, 12 passed` (`AttributeError: module 'aura_eval' has no attribute 'states_system_facts'`, and `KeyError: 'system_facts_without_tool'`)
+
+- [ ] **Step 3: Edit `tests/aura_eval.py`**
+
+1. Directly above `def evaluate_case(`, insert:
+
+```python
+SYSTEM_WORDS = ("battery", "uptime", "network", "mbps", "brightness", "cpu", "memory")
+
+
+def states_system_facts(reply, actions):
+    """True if a reply quotes numbers about the machine although no tool ran. A heuristic:
+    it catches invented readings such as 'Battery: 92%', and can also flag harmless replies."""
+    text = (reply or "").lower()
+    return not actions and any(ch.isdigit() for ch in text) and any(word in text for word in SYSTEM_WORDS)
+
+
+```
+
+2. In `evaluate_case`, replace the line
+
+```python
+        "reply": out["a"], "bad_reply": llm._reply_is_bad(out["a"]),
+```
+
+with
+
+```python
+        "reply": out["a"], "bad_reply": llm._reply_is_bad(out["a"]),
+        "system_facts_without_tool": states_system_facts(out["a"], out["actions"]),
+```
+
+3. In `summarize`, replace
+
+```python
+        "bad_reply": _rate(rows, "bad_reply"),
+```
+
+with
+
+```python
+        "bad_reply": _rate(rows, "bad_reply"),
+        "system_facts_without_tool": _rate(rows, "system_facts_without_tool"),
+```
+
+4. Replace `"bad reply", "p50 ms",` in `HEADER` with `"bad reply", "system facts, no tool", "p50 ms",`, and directly below the `HEADER` list add:
+
+```python
+NO_METRIC = {"count": 0, "total": 0, "rate": None}  # results recorded before a metric existed
+```
+
+5. In `format_table`, replace
+
+```python
+                     _pct(m["bad_reply"]), _ms(m["latency_ms_p50"]), _ms(m["latency_ms_p95"])])
+```
+
+with
+
+```python
+                     _pct(m["bad_reply"]), _pct(m.get("system_facts_without_tool", NO_METRIC)),
+                     _ms(m["latency_ms_p50"]), _ms(m["latency_ms_p95"])])
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `python -m pytest tests/test_aura_eval.py -q`
+Expected: `14 passed`
+
+Run: `python -m pytest tests -q`
+Expected: `79 passed`
+
+Run: `python tests/aura_eval.py --summary`
+Expected: the baseline row prints with `-` under "system facts, no tool".
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/aura_eval.py tests/test_aura_eval.py
+git commit -m "tests: flag replies that state system facts without calling a tool"
+```
+
+---
+
 ### Task 10: Measure free vs schema decoding on Llama-3.2-1B and set the default
 
 **Files:**
@@ -1725,31 +1841,42 @@ Expected: a 3-row table with `server_errors` 0 in each case, meaning replies wer
 - If it exits with "every request failed", read `$HOME/aura-eval/server-llama1b.log`.
 - A grammar error there means b4589 rejects part of the schema. Stop and report BLOCKED with the log lines.
 
-- [ ] **Step 3: Record both runs**
+- [ ] **Step 3: Record three runs of each decoding**
 
 ```bash
 M="$HOME/aura-eval/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-PYTHONUTF8=1 python tests/aura_eval.py --model-name llama-3.2-1b-q4km --model-file "$M" --decoding free
-PYTHONUTF8=1 python tests/aura_eval.py --model-name llama-3.2-1b-q4km --model-file "$M" --decoding schema
+for run in 1 2 3; do
+  for decoding in free schema; do
+    PYTHONUTF8=1 python tests/aura_eval.py --model-name "llama-3.2-1b-q4km-r$run" --model-file "$M" --decoding "$decoding" || exit 1
+  done
+done
 taskkill //IM llama-server.exe //F
 ```
 
 - [ ] **Step 4: Apply the decision rule**
 
-The spec's rule, using model-level metrics: schema wins if its false-action rate is lower and its tool accuracy is no more than 2 points below free.
+The spec's rule, applied to the means of the three runs (the model samples randomly, and one tool case is 2.5 points): schema wins if its mean model-level false-action rate is lower and its mean tool accuracy is no more than 2 points below free. The min-max range of each is recorded with the decision.
 
 ```bash
 PYTHONUTF8=1 python - <<'PY'
 import json, pathlib
-def latest(name, decoding):
-    files = sorted(pathlib.Path("tests/results").glob(f"aura-eval-*-{name}-{decoding}.json"))
-    return json.loads(files[-1].read_text(encoding="utf-8"))["metrics"]
-free, schema = latest("llama-3.2-1b-q4km", "free"), latest("llama-3.2-1b-q4km", "schema")
-fa_f, fa_s = free["false_action_model"]["rate"], schema["false_action_model"]["rate"]
-acc_f, acc_s = free["tool_accuracy_model"]["rate"], schema["tool_accuracy_model"]["rate"]
+def runs(name, decoding):
+    files = sorted(pathlib.Path("tests/results").glob(f"aura-eval-*-{name}-r[123]-{decoding}.json"))
+    assert len(files) == 3, f"expected 3 runs for {name}/{decoding}, found {len(files)}"
+    return [json.loads(p.read_text(encoding="utf-8"))["metrics"] for p in files]
+def mean(ms, key):
+    return sum(m[key]["rate"] for m in ms) / len(ms)
+def spread(ms, key):
+    rates = [m[key]["rate"] for m in ms]
+    return f"{min(rates):.3f}-{max(rates):.3f}"
+free, schema = runs("llama-3.2-1b-q4km", "free"), runs("llama-3.2-1b-q4km", "schema")
+fa_f, fa_s = mean(free, "false_action_model"), mean(schema, "false_action_model")
+acc_f, acc_s = mean(free, "tool_accuracy_model"), mean(schema, "tool_accuracy_model")
 decision = "schema" if (fa_s < fa_f and acc_s >= acc_f - 0.02) else "free"
-summary = (f"false action: free {fa_f:.3f}, schema {fa_s:.3f}; "
-           f"tool accuracy: free {acc_f:.3f}, schema {acc_s:.3f}")
+summary = (f"means of 3 runs: false action free {fa_f:.3f} ({spread(free, 'false_action_model')}), "
+           f"schema {fa_s:.3f} ({spread(schema, 'false_action_model')}); "
+           f"tool accuracy free {acc_f:.3f} ({spread(free, 'tool_accuracy_model')}), "
+           f"schema {acc_s:.3f} ({spread(schema, 'tool_accuracy_model')})")
 print(summary)
 print("DECISION:", decision)
 (pathlib.Path.home() / "aura-eval" / "commit-msg.txt").write_text(
@@ -1760,7 +1887,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `77 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `79 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -1805,17 +1932,20 @@ E="$HOME/aura-eval"; LLAMA=$(find "$E/llama-b4589" -name llama-server.exe | head
 curl -sf --retry 60 --retry-delay 2 --retry-all-errors http://127.0.0.1:8080/health && echo ready
 cd "/c/Users/aneek.chattopadhyay/Desktop/Other Projects/auroraos"
 M="$HOME/aura-eval/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
-PYTHONUTF8=1 python tests/aura_eval.py --model-name qwen2.5-1.5b-q4km --model-file "$M" --decoding free
-PYTHONUTF8=1 python tests/aura_eval.py --model-name qwen2.5-1.5b-q4km --model-file "$M" --decoding schema
+for run in 1 2 3; do
+  for decoding in free schema; do
+    PYTHONUTF8=1 python tests/aura_eval.py --model-name "qwen2.5-1.5b-q4km-r$run" --model-file "$M" --decoding "$decoding" || exit 1
+  done
+done
 taskkill //IM llama-server.exe //F
 ```
 
-Repeat with `Qwen2.5-3B-Instruct-Q4_K_M.gguf`, `server-qwen3b.log` and `--model-name qwen2.5-3b-q4km`.
+Repeat with `Qwen2.5-3B-Instruct-Q4_K_M.gguf`, `server-qwen3b.log` and model names `qwen2.5-3b-q4km-r1` to `qwen2.5-3b-q4km-r3`.
 
 - [ ] **Step 3: Print the summary**
 
 Run: `PYTHONUTF8=1 python tests/aura_eval.py --summary`
-Expected: 7 rows (baseline, Llama free and schema, Qwen 1.5B free and schema, Qwen 3B free and schema).
+Expected: 19 rows (the baseline, plus three runs each of Llama-3.2-1B, Qwen2.5-1.5B and Qwen2.5-3B in free and schema decoding).
 
 - [ ] **Step 4: Commit**
 
@@ -1834,7 +1964,7 @@ git commit -m "tests: measure Qwen2.5-1.5B and Qwen2.5-3B (3B as a comparison on
 
 - [ ] **Step 1: Apply the selection rule**
 
-The rule, among shippable models only, in the decoding chosen in Task 10:
+The rule, among shippable models only, in the decoding chosen in Task 10, using the means of the three runs:
 - highest model-level tool accuracy, with false-action rate as the tie-breaker
 - p95 latency within 2× of Llama-3.2-1B
 
@@ -1845,10 +1975,16 @@ import json, pathlib, sys
 sys.path.insert(0, "shell")
 import aura_llm
 decoding = "schema" if aura_llm.SCHEMA_DEFAULT == "1" else "free"
-def latest(name):
-    files = sorted(pathlib.Path("tests/results").glob(f"aura-eval-*-{name}-{decoding}.json"))
-    return json.loads(files[-1].read_text(encoding="utf-8"))["metrics"]
-shippable = {n: latest(n) for n in ("llama-3.2-1b-q4km", "qwen2.5-1.5b-q4km")}
+def averaged(name):
+    files = sorted(pathlib.Path("tests/results").glob(f"aura-eval-*-{name}-r[123]-{decoding}.json"))
+    assert len(files) == 3, f"expected 3 runs for {name}/{decoding}, found {len(files)}"
+    runs = [json.loads(p.read_text(encoding="utf-8"))["metrics"] for p in files]
+    def avg(key):
+        return sum(r[key]["rate"] for r in runs) / 3
+    return {"tool_accuracy_model": {"rate": avg("tool_accuracy_model")},
+            "false_action_model": {"rate": avg("false_action_model")},
+            "latency_ms_p95": sum(r["latency_ms_p95"] for r in runs) / 3}
+shippable = {n: averaged(n) for n in ("llama-3.2-1b-q4km", "qwen2.5-1.5b-q4km")}
 limit = 2 * shippable["llama-3.2-1b-q4km"]["latency_ms_p95"]
 eligible = {n: m for n, m in shippable.items() if m["latency_ms_p95"] <= limit}
 best = max(eligible, key=lambda n: (eligible[n]["tool_accuracy_model"]["rate"],
@@ -1857,7 +1993,7 @@ m = eligible[best]
 print("decoding:", decoding)
 print("CHOSEN:", best)
 print("LoRA follow-up spec needed:", m["false_action_model"]["rate"] > 0.05 or m["tool_accuracy_model"]["rate"] < 0.90)
-ref = latest("qwen2.5-3b-q4km")
+ref = averaged("qwen2.5-3b-q4km")
 print(f"reference (not shippable) qwen2.5-3b: tool accuracy {ref['tool_accuracy_model']['rate']}, "
       f"false action {ref['false_action_model']['rate']}")
 lora = m["false_action_model"]["rate"] > 0.05 or m["tool_accuracy_model"]["rate"] < 0.90
@@ -1920,7 +2056,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `77 passed`.
+Then run `python -m pytest tests -q`. Expected: `79 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
@@ -1931,7 +2067,7 @@ Insert this block directly above the line `## After first boot`:
 
 73 cases: 40 tool requests, 25 messages that must not trigger a tool, 8 power requests. Measured with llama.cpp `b4589` on the development host; latency is only comparable within this table. Generated by `python tests/aura_eval.py --summary --markdown`.
 
-*Model* columns score the model's own output. *Pipeline* columns run that same output through `aura_llm.ask()`, whose keyword gate (`_ACTION_CUE`) drops a tool call when the request contains no action word. Some realistic requests, such as "how much battery is left", have none, so pipeline accuracy sits below model accuracy by design; the per-tool table shows where. Not covered by these cases: out-of-range brightness values and empty input.
+*Model* columns score the model's own output. *Pipeline* columns run that same output through `aura_llm.ask()`, whose keyword gate (`_ACTION_CUE`) drops a tool call when the request contains no action word. Some realistic requests, such as "how much battery is left", have none, so pipeline accuracy sits below model accuracy by design; the per-tool table shows where. Not covered by these cases: out-of-range brightness values and empty input. The *system facts, no tool* column counts replies that quote battery, network or uptime numbers without calling a tool, a heuristic for invented readings. Each model and decoding was run three times because the model samples randomly; the table lists every run. The baseline's 0% pipeline false-action rate on power requests came from the model inventing command names such as `poweroff`, not from a safety check: the registered `power` tool still existed then, and Aura now asks for confirmation instead. If schema decoding raises `open_app` accuracy, that is the schema restricting commands to real tool names rather than the model understanding requests better. Latency was measured on a Windows development PC, not on DaybreakOS target hardware.
 
 <!-- aura-eval:start -->
 <!-- aura-eval:end -->

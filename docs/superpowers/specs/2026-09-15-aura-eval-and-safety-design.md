@@ -85,6 +85,7 @@ One JSON object per line, with `say`, `expect` and optional `args`. It replaces 
   - bad-reply rate (`_reply_is_bad`)
   - wall-clock latency p50 and p95
   - per-tool model and pipeline accuracy, and how many correct model calls the `_ACTION_CUE` keyword gate dropped (some realistic requests contain no action word, so pipeline accuracy is capped below model accuracy)
+  - replies stating system facts without a tool call (digits plus battery, uptime or network words; a heuristic for invented readings, which `bad_reply` cannot see)
 - **Conditions:** `--model <gguf>` and `--decoding free|schema`. The server is started by the caller, and the harness records the server's reported model path.
 - **Output:** `tests/results/aura-eval-<date>-<model>-<decoding>.json`, with the date, git commit, host CPU, model file SHA-256, llama.cpp tag, every case's raw output and the metrics. `--summary` prints a table from all result files. Requests that fail at the server are counted separately and excluded from every rate; a run with any failed request, or one that would overwrite an existing results file, is not saved.
 - **Replaces `tests/test_aura_llm_live.sh`** (its quoting bug goes with it).
@@ -152,7 +153,7 @@ The 8 failing tests are updated to the native desktop's contract (§2):
 - `call_llama` optionally sends `response_format: {"type": "json_schema", "json_schema": {"schema": …}}`, which is supported at b4589 (`utils.hpp:610-614`).
 - **Schema:** an object with `reply` (string) and `tool_calls` (array of `{cmd, args}`), where `cmd` is an enum of registry tool names and `set_brightness.percent` is an integer from 0 to 100. Chat replies come back as `{"reply": "...", "tool_calls": []}`.
 - **Switch:** controlled by `AURA_LLM_SCHEMA` (`1` or `0`).
-- **Default:** set only after measurement. Schema mode becomes the default if, versus free mode on the same model, its false-action rate is lower and its tool accuracy is not more than 2 points worse. Otherwise the default stays free, and the results file is the record of why.
+- **Default:** set only after measurement. Schema mode becomes the default if, versus free mode on the same model and averaged over three runs of each, its false-action rate is lower and its tool accuracy is not more than 2 points worse. Otherwise the default stays free, and the results file is the record of why.
 - `parse_model_output` already handles both shapes. `_reply_is_bad` stays as a last line of defence.
 
 ## 8. Model comparison and choice (phases D-E)
@@ -163,7 +164,7 @@ The 8 failing tests are updated to the native desktop's contract (§2):
 | Qwen2.5-1.5B-Instruct | 986 MB | Apache-2.0 | yes |
 | Qwen2.5-3B-Instruct | 1.93 GB | Qwen Research (non-commercial only) | **no: comparison baseline only** |
 
-- **Runs:** each model is run in the better decoding mode from phase C, plus free mode for reference.
+- **Runs:** each model is run three times in each decoding mode, because the model samples at temperature 0.2 and one tool case is worth 2.5 points. Decisions use the means; every run is published.
 - **Selection** is among shippable models:
   - highest tool accuracy, with false-action rate as the tie-breaker
   - p95 latency must stay within 2× of Llama-3.2-1B on the same host
