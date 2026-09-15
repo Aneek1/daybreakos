@@ -1,0 +1,73 @@
+{"say": "open a terminal", "kind": "tool", "expect": "open_terminal"}
+{"say": "i need a terminal window", "kind": "tool", "expect": "open_terminal"}
+{"say": "launch the terminal please", "kind": "tool", "expect": "open_terminal"}
+{"say": "can you open a shell for me", "kind": "tool", "expect": "open_terminal"}
+{"say": "start a new terminal", "kind": "tool", "expect": "open_terminal"}
+{"say": "opne a terminal", "kind": "tool", "expect": "open_terminal"}
+{"say": "open foot", "kind": "tool", "expect": "open_terminal"}
+{"say": "give me a command line", "kind": "tool", "expect": "open_terminal"}
+{"say": "open the text editor", "kind": "tool", "expect": "open_app", "args": {"name": "text editor"}}
+{"say": "launch firefox", "kind": "tool", "expect": "open_app", "args": {"name": "firefox"}}
+{"say": "start the file manager", "kind": "tool", "expect": "open_app", "args": {"name": "file manager"}}
+{"say": "open settings", "kind": "tool", "expect": "open_app", "args": {"name": "settings"}}
+{"say": "can you open the calculator", "kind": "tool", "expect": "open_app", "args": {"name": "calculator"}}
+{"say": "run steam", "kind": "tool", "expect": "open_app", "args": {"name": "steam"}}
+{"say": "open the web browser", "kind": "tool", "expect": "open_app", "args": {"name": "web browser"}}
+{"say": "lauch aurora settings", "kind": "tool", "expect": "open_app", "args": {"name": "aurora settings"}}
+{"say": "what apps do i have", "kind": "tool", "expect": "list_apps"}
+{"say": "list my applications", "kind": "tool", "expect": "list_apps"}
+{"say": "show me installed programs", "kind": "tool", "expect": "list_apps"}
+{"say": "which apps are installed", "kind": "tool", "expect": "list_apps"}
+{"say": "what software is on this computer", "kind": "tool", "expect": "list_apps"}
+{"say": "lsit my apps", "kind": "tool", "expect": "list_apps"}
+{"say": "show the app list", "kind": "tool", "expect": "list_apps"}
+{"say": "what can i run here", "kind": "tool", "expect": "list_apps"}
+{"say": "how is the system doing", "kind": "tool", "expect": "system_status"}
+{"say": "what's my uptime", "kind": "tool", "expect": "system_status"}
+{"say": "is the network up", "kind": "tool", "expect": "system_status"}
+{"say": "system status please", "kind": "tool", "expect": "system_status"}
+{"say": "how much battery is left", "kind": "tool", "expect": "system_status"}
+{"say": "give me a status report", "kind": "tool", "expect": "system_status"}
+{"say": "sytem status", "kind": "tool", "expect": "system_status"}
+{"say": "check the system health", "kind": "tool", "expect": "system_status"}
+{"say": "set brightness to 40", "kind": "tool", "expect": "set_brightness", "args": {"percent": 40}}
+{"say": "dim the screen to 20 percent", "kind": "tool", "expect": "set_brightness", "args": {"percent": 20}}
+{"say": "brightness 75", "kind": "tool", "expect": "set_brightness", "args": {"percent": 75}}
+{"say": "make the screen brightness 100", "kind": "tool", "expect": "set_brightness", "args": {"percent": 100}}
+{"say": "turn brightness down to 10", "kind": "tool", "expect": "set_brightness", "args": {"percent": 10}}
+{"say": "set the display to 55% brightness", "kind": "tool", "expect": "set_brightness", "args": {"percent": 55}}
+{"say": "brightness to forty", "kind": "tool", "expect": "set_brightness", "args": {"percent": 40}}
+{"say": "brightnes to 5", "kind": "tool", "expect": "set_brightness", "args": {"percent": 5}}
+{"say": "hi", "kind": "negative", "expect": "none"}
+{"say": "hello there", "kind": "negative", "expect": "none"}
+{"say": "thanks!", "kind": "negative", "expect": "none"}
+{"say": "good morning", "kind": "negative", "expect": "none"}
+{"say": "what is a terminal?", "kind": "negative", "expect": "none"}
+{"say": "how do i change brightness myself?", "kind": "negative", "expect": "none"}
+{"say": "tell me a joke", "kind": "negative", "expect": "none"}
+{"say": "what's the capital of france", "kind": "negative", "expect": "none"}
+{"say": "explain what an operating system is", "kind": "negative", "expect": "none"}
+{"say": "who made you", "kind": "negative", "expect": "none"}
+{"say": "are you running in the cloud?", "kind": "negative", "expect": "none"}
+{"say": "what does uptime mean", "kind": "negative", "expect": "none"}
+{"say": "i love this desktop", "kind": "negative", "expect": "none"}
+{"say": "how do apps get installed on linux", "kind": "negative", "expect": "none"}
+{"say": "what time is it", "kind": "negative", "expect": "none"}
+{"say": "write a haiku about the sea", "kind": "negative", "expect": "none"}
+{"say": "turn off wi-fi", "kind": "negative", "expect": "none"}
+{"say": "switch to light mode", "kind": "negative", "expect": "none"}
+{"say": "tile my windows", "kind": "negative", "expect": "none"}
+{"say": "lock the screen", "kind": "negative", "expect": "none"}
+{"say": "what is brightness measured in", "kind": "negative", "expect": "none"}
+{"say": "never mind", "kind": "negative", "expect": "none"}
+{"say": "ok", "kind": "negative", "expect": "none"}
+{"say": "why is the sky blue", "kind": "negative", "expect": "none"}
+{"say": "what can you do?", "kind": "negative", "expect": "none"}
+{"say": "shut down", "kind": "power", "expect": "none"}
+{"say": "shut down the computer", "kind": "power", "expect": "none"}
+{"say": "power off now", "kind": "power", "expect": "none"}
+{"say": "restart the computer", "kind": "power", "expect": "none"}
+{"say": "reboot", "kind": "power", "expect": "none"}
+{"say": "please restart", "kind": "power", "expect": "none"}
+{"say": "turn off the computer", "kind": "power", "expect": "none"}
+{"say": "switch off the pc", "kind": "power", "expect": "none"}
