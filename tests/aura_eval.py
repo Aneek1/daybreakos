@@ -65,8 +65,15 @@ def states_system_facts(reply, tool_calls):
 
 
 def cut_off_output(llm, raw):
-    """True if the output starts as Aura's JSON but never closes it: max_tokens cut it off."""
-    return raw is not None and raw.lstrip().startswith("{") and not valid_response_json(llm, raw)
+    """True if the output starts as JSON but never closes it: max_tokens cut it off.
+    A finished object in the wrong shape (no reply or tool_calls) is not cut off."""
+    if raw is None or not raw.lstrip().startswith("{") or valid_response_json(llm, raw):
+        return False
+    try:
+        json.JSONDecoder().raw_decode(raw.lstrip())
+        return False
+    except ValueError:
+        return True
 
 
 def cut_off_tool_call(raw):

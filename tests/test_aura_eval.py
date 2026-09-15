@@ -169,3 +169,9 @@ def test_rescore_recounts_results_recorded_before_the_cut_off_metric():
     assert fresh["metrics"]["cut_off_output"] == {"count": 1, "total": 1, "rate": 1.0}
     assert result["metrics"] is stale and "cut_off_output" not in result["cases"][0]  # input left as read
     assert "100.0% (1/1)" in aura_eval.format_table([fresh], markdown=True)
+
+def test_complete_json_in_the_wrong_shape_is_not_cut_off():
+    # Llama-3.2-1B free sometimes writes a finished object without reply or tool_calls
+    assert aura_eval.cut_off_output(aura_llm, '{"cmd": "open_terminal", "args": {}}') is False
+    assert aura_eval.cut_off_output(aura_llm, '{"status": "up", "network": "stable"}') is False
+    assert aura_eval.cut_off_output(aura_llm, '{"cmd": "reboot", "args":') is True
