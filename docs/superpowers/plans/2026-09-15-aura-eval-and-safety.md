@@ -840,7 +840,7 @@ def confirm_payload(action):
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `python -m pytest tests/test_aura_power.py -q`
-Expected: `20 passed`
+Expected: `36 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -854,8 +854,9 @@ git commit -m "Aura: recognise typed power requests and build a confirmation pay
 ### Task 5: Take power away from the model; confirm typed requests in /ask
 
 **Files:**
-- Modify: `config/aura-tools.json`, `shell/aurorad.py`
+- Modify: `config/aura-tools.json`, `shell/aurorad.py`, `scripts/10-aurora-shell.sh`, `scripts/13-aurora-desktop.sh`
 - Rewrite: `tests/test_aurorad_ask.py`
+- Create: `tests/test_aurorad_install.py`
 
 - [ ] **Step 1: Rewrite the black-box tests**
 
@@ -1016,10 +1017,21 @@ grep -n "_power\|systemctl" shell/aurorad.py
 
 Expected: only the `/system/power` and `/power` endpoint handlers (the `subprocess.Popen(["systemctl", act])` lines inside `do_POST` around lines 807-829) and the `aura_power.` calls; no `_power(` helper or executor.
 
+- [ ] **Step 6b: Install `aura_power.py` next to the daemon**
+
+`aurorad` now imports `aura_power`, and the image runs it as `/usr/bin/python3 /usr/lib/aurora/aurorad`, so the module must be installed in `/usr/lib/aurora` or both daemons crash at startup. In `scripts/10-aurora-shell.sh`, after the `aura_llm.py` install line, add `install -Dm644 /aurora/shell/aura_power.py /usr/lib/aurora/aura_power.py`; do the same in `scripts/13-aurora-desktop.sh`. `tests/test_aurorad_install.py` checks that every `import aura_*` in `shell/aurorad.py` has a matching install line in both scripts.
+
+```bash
+grep -n aura_power scripts/10-aurora-shell.sh scripts/13-aurora-desktop.sh
+python -m pytest tests/test_aurorad_install.py -q
+```
+
+Expected: one install line in each script, and `1 passed`.
+
 - [ ] **Step 7: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `5 failed, 64 passed`. The remaining failures are:
+Expected: `5 failed, 81 passed`. The remaining failures are:
 - `test_build_prompt_lists_tools_and_forbids_invention`
 - `test_route_defers_ui_tool_unrun`
 - `test_ask_happy_path_executes_and_returns_actions`
@@ -1029,7 +1041,7 @@ Expected: `5 failed, 64 passed`. The remaining failures are:
 - [ ] **Step 8: Commit**
 
 ```bash
-git add config/aura-tools.json shell/aurorad.py tests/test_aurorad_ask.py
+git add config/aura-tools.json shell/aurorad.py tests/test_aurorad_ask.py tests/test_aurorad_install.py scripts/10-aurora-shell.sh scripts/13-aurora-desktop.sh
 git commit -m "Aura: remove power from the model's tools; /ask asks for confirmation instead"
 ```
 
@@ -1096,7 +1108,7 @@ def test_every_tool_has_an_aurorad_executor():
 - [ ] **Step 3: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `69 passed`
+Expected: `86 passed`
 
 - [ ] **Step 4: Commit**
 
@@ -1368,7 +1380,7 @@ Expected: `aurora-shell built: ...`, then `no new warnings`. Line numbers are st
 - [ ] **Step 7: Run the Python suite (unchanged by this task)**
 
 Run: `python -m pytest tests -q`
-Expected: `69 passed`
+Expected: `86 passed`
 
 - [ ] **Step 8: Commit**
 
@@ -1691,7 +1703,7 @@ with:
 - [ ] **Step 5: Run the whole suite**
 
 Run: `python -m pytest tests -q`
-Expected: `77 passed`
+Expected: `94 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -1804,7 +1816,7 @@ Run: `python -m pytest tests/test_aura_eval.py -q`
 Expected: `14 passed`
 
 Run: `python -m pytest tests -q`
-Expected: `79 passed`
+Expected: `96 passed`
 
 Run: `python tests/aura_eval.py --summary`
 Expected: the baseline row prints with `-` under "system facts, no tool".
@@ -1887,7 +1899,7 @@ PY
 
 - [ ] **Step 5: If the decision is `schema`, make it the default**
 
-In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `79 passed`). If the decision is `free`, change nothing.
+In `shell/aura_llm.py`, change `SCHEMA_DEFAULT = "0"` to `SCHEMA_DEFAULT = "1"`, then run `python -m pytest tests -q` (expected `96 passed`). If the decision is `free`, change nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -2056,7 +2068,7 @@ The launcher picks the largest GGUF, so an installed system that still has the 1
    - replace `a quantized Llama-3.2-1B-Instruct model` with `a quantized Qwen2.5-1.5B-Instruct model`
    - replace `The model is **Llama-3.2-1B-Instruct** (Q4_K_M, about 0.8 GB), bundled by` with `The model is **Qwen2.5-1.5B-Instruct** (Q4_K_M, about 1.0 GB, Apache-2.0), bundled by`
 
-Then run `python -m pytest tests -q`. Expected: `79 passed`.
+Then run `python -m pytest tests -q`. Expected: `96 passed`.
 
 - [ ] **Step 7: Add the generated results table to the README**
 
