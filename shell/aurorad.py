@@ -668,11 +668,11 @@ def unmount_share(target):
 
 # ----- Aura model download (post-install) -------------------------------
 # The ISO ships without the LLM model to stay small. Once installed and online,
-# Aura downloads a ~0.8 GB model on demand; aura-llm-launch then serves it.
+# Aura downloads a ~1.0 GB model on demand; aura-llm-launch then serves it.
 AURA_MODEL_DIR = "/opt/aura/models"
 AURA_MODEL_URL = os.environ.get("AURA_MODEL_URL",
-    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/"
-    "resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+    "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/"
+    "resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
 AURA = {"running": False, "pct": 0, "done": False, "error": ""}
 AURA_LOCK = threading.Lock()
 
@@ -683,7 +683,7 @@ def aura_model_present():
         return False
 
 def _aura_download():
-    dest = os.path.join(AURA_MODEL_DIR, "Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+    dest = os.path.join(AURA_MODEL_DIR, "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
     tmp = dest + ".part"
     try:
         os.makedirs(AURA_MODEL_DIR, exist_ok=True)
@@ -921,7 +921,7 @@ class H(BaseHTTPRequestHandler):
                 "system_status": lambda a: self._status_line(status),
             }
 
-            # Fast-path obvious imperative commands. The bundled 1B model is not
+            # Fast-path obvious imperative commands. The bundled small model is not
             # reliable at emitting tool-call JSON, so match clear intents directly
             # and only defer to the model for open-ended chat.
             ql = q.strip().lower()

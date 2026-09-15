@@ -2264,7 +2264,7 @@ static void am_aura_setup(GtkMenuItem *i, gpointer u) {
         GtkWidget *t = gtk_label_new("Set up Aura");
         gtk_style_context_add_class(gtk_widget_get_style_context(t), "abt-name");
         gtk_widget_set_halign(t, GTK_ALIGN_START);
-        GtkWidget *s = gtk_label_new("Download Aura's on-device AI model (~0.8 GB, "
+        GtkWidget *s = gtk_label_new("Download Aura's on-device AI model (~1.0 GB, "
             "one time). Everything runs locally after this — no cloud.");
         gtk_label_set_line_wrap(GTK_LABEL(s), TRUE);
         gtk_style_context_add_class(gtk_widget_get_style_context(s), "abt-desc");

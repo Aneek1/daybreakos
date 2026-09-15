@@ -45,11 +45,11 @@ fi
 
 # ---- Aura LLM model (bundled, offline-first) ----
 AURA_MODEL_DIR="$LFS/opt/aura/models"
-AURA_MODEL="Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-AURA_MODEL_URL="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/${AURA_MODEL}"
+AURA_MODEL="Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+AURA_MODEL_URL="https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/${AURA_MODEL}"
 mkdir -p "$AURA_MODEL_DIR"
 if [ ! -f "$AURA_MODEL_DIR/$AURA_MODEL" ]; then
-  echo "==== downloading Aura model ($AURA_MODEL, ~0.8 GB) ===="
+  echo "==== downloading Aura model ($AURA_MODEL, ~1.0 GB) ===="
   wget --timeout=30 --tries=5 -O "$AURA_MODEL_DIR/$AURA_MODEL" "$AURA_MODEL_URL"
 fi
 # Integrity: GGUF files start with the ASCII magic "GGUF"; reject truncated/HTML error pages.

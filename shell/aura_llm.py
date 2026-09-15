@@ -2,7 +2,7 @@
 Stdlib only (ships to the LFS target). aurorad.py calls ask()."""
 import json, os, re, urllib.request, urllib.error
 
-# The bundled 1B model frequently hallucinates a tool call for plain chit-chat
+# Small on-device models can hallucinate a tool call for plain chit-chat
 # (e.g. "hi" -> open_terminal). A model-emitted action is only honored when the
 # user's own words show action intent; otherwise the call is dropped and we just
 # chat. Deterministic commands are already handled upstream in aurorad.py.
@@ -203,7 +203,7 @@ def model_installed():
 
 _SETUP_HINT = ('I don\'t have my language model on this machine yet — open the '
                'Daybreak menu and choose "Set up Aura (AI)" to download it '
-               '(~0.8 GB, one time). Until then I can still open apps and '
+               '(~1.0 GB, one time). Until then I can still open apps and '
                'report system status.')
 
 def heuristic_fallback(user_text, status=None):
