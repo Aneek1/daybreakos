@@ -25,7 +25,7 @@ def test_correct_tool_case():
     case = {"say": "set brightness to 40", "kind": "tool", "expect": "set_brightness", "args": {"percent": 40}}
     raw = '{"reply": "Done.", "tool_calls": [{"cmd": "set_brightness", "args": {"percent": 40}}]}'
     row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(raw))
-    assert row["model_correct"] and row["pipeline_correct"] and row["args_correct"] and row["valid_json"]
+    assert row["model_correct"] and row["pipeline_correct"] and row["args_correct"] and row["valid_response_json"]
     assert row["bad_reply"] is False
 
 def test_invented_action_on_chit_chat_counts_at_model_level_only():
@@ -39,7 +39,7 @@ def test_server_error_row():
     case = {"say": "open a terminal", "kind": "tool", "expect": "open_terminal"}
     row = aura_eval.evaluate_case(aura_llm, TOOLS, case, call_returning(None))
     assert row["server_error"] is True
-    assert row["model_correct"] is False and row["valid_json"] is False
+    assert row["model_correct"] is False and row["valid_response_json"] is False
 
 def test_call_llama_restored_after_case():
     original = aura_llm.call_llama
@@ -50,9 +50,9 @@ def test_call_llama_restored_after_case():
 def test_summarize_and_table():
     rows = [
         {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 100.0,
-         "model_correct": True, "pipeline_correct": True, "valid_json": True, "bad_reply": False},
+         "model_correct": True, "pipeline_correct": True, "valid_response_json": True, "bad_reply": False},
         {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 300.0,
-         "model_correct": False, "pipeline_correct": False, "valid_json": False, "bad_reply": True},
+         "model_correct": False, "pipeline_correct": False, "valid_response_json": False, "bad_reply": True},
         {"kind": "negative", "server_error": False, "latency_ms": 200.0, "model_false_action": True,
          "pipeline_false_action": False, "bad_reply": False},
     ]
@@ -75,9 +75,9 @@ def test_gate_dropped_calls_and_per_tool_table():
     # a correct model call that the keyword gate dropped, and one it kept
     rows = [
         {"kind": "tool", "expect": "system_status", "server_error": False, "latency_ms": 1.0,
-         "model_correct": True, "pipeline_correct": False, "valid_json": True, "bad_reply": False},
+         "model_correct": True, "pipeline_correct": False, "valid_response_json": True, "bad_reply": False},
         {"kind": "tool", "expect": "open_terminal", "server_error": False, "latency_ms": 1.0,
-         "model_correct": True, "pipeline_correct": True, "valid_json": True, "bad_reply": False},
+         "model_correct": True, "pipeline_correct": True, "valid_response_json": True, "bad_reply": False},
     ]
     m = aura_eval.summarize(rows)
     assert m["gate_dropped_correct_calls"] == 1
@@ -86,3 +86,29 @@ def test_gate_dropped_calls_and_per_tool_table():
     assert table.splitlines()[0] == "| model | decoding | tool | cases | model correct | pipeline correct |"
     assert "| m | free | system_status | 1 | 1 | 0 |" in table
     assert aura_eval.format_tool_table([]) == "no per-tool results"
+
+def test_server_errors_count_neither_right_nor_wrong():
+    rows = [
+        {"kind": "negative", "expect": "none", "server_error": True, "latency_ms": 0.0,
+         "model_false_action": False, "pipeline_false_action": False, "bad_reply": False},
+        {"kind": "negative", "expect": "none", "server_error": False, "latency_ms": 5.0,
+         "model_false_action": True, "pipeline_false_action": False, "bad_reply": False},
+        {"kind": "tool", "expect": "list_apps", "server_error": True, "latency_ms": 0.0,
+         "model_correct": False, "pipeline_correct": False, "valid_response_json": False, "bad_reply": True},
+    ]
+    m = aura_eval.summarize(rows)
+    assert m["server_errors"] == 2
+    assert m["false_action_model"] == {"count": 1, "total": 1, "rate": 1.0}
+    assert m["tool_accuracy_model"] == {"count": 0, "total": 0, "rate": None}
+    assert m["by_tool"] == {}
+
+def test_results_problem_refuses_failed_requests_and_overwrites(tmp_path):
+    out = tmp_path / "aura-eval-x.json"
+    assert "1 of 3 requests failed" in aura_eval.results_problem({"server_errors": 1, "cases": 3}, out)
+    assert aura_eval.results_problem({"server_errors": 0, "cases": 3}, out) is None
+    out.write_text("{}", encoding="utf-8")
+    assert "already exists" in aura_eval.results_problem({"server_errors": 0, "cases": 3}, out)
+
+def test_health_url_ignores_the_path():
+    assert aura_eval.health_url("http://127.0.0.1:8080/v1/chat/completions") == "http://127.0.0.1:8080/health"
+    assert aura_eval.health_url("http://localhost:9000/proxy/chat") == "http://localhost:9000/health"
