@@ -1122,8 +1122,8 @@ git commit -m "tests: align Aura tests with the native desktop's tool contract"
 ### Task 7: Power off / Cancel buttons in the Aura panel
 
 **Files:**
-- Create: `scripts/check-shell-build.sh`, `.gitattributes`, `tests/test_aurorad_http.py`
-- Modify: `shell/aurora-desktop/aurora-shell.c`, `shell/aurora-desktop/style.css`, `shell/aurorad.py`, `shell/aurora-desktop/aurora-settings.c`
+- Create: `scripts/check-shell-build.sh`, `tests/test_aurorad_http.py`
+- Modify: `.gitattributes`, `shell/aurora-desktop/aurora-shell.c`, `shell/aurora-desktop/style.css`, `shell/aurorad.py`, `shell/aurora-desktop/aurora-settings.c`
 
 **Prerequisite:** WSL Ubuntu with the build packages installed. If `pkg-config --modversion gtk+-3.0` fails inside WSL, stop and report BLOCKED so the owner can run:
 `wsl -d Ubuntu -- sudo apt-get install -y build-essential pkg-config libgtk-3-dev libgtk-layer-shell-dev libwayland-dev`
@@ -1297,7 +1297,7 @@ git commit -m "aurorad: refuse requests a web page could send (Origin, non-JSON 
 
 - [ ] **Step 1: Add the build-check script and LF rule**
 
-`.gitattributes`:
+Append to `.gitattributes` (it already holds `* text=auto eol=lf`; keep that line):
 
 ```
 *.sh text eol=lf
