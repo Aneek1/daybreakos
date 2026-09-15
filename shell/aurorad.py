@@ -13,6 +13,7 @@ Tiny localhost HTTP API the web shell talks to. Root service, binds
 """
 import json, os, re, glob, subprocess, time, urllib.parse, urllib.request, shutil, threading
 import aura_llm
+import aura_power
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # sbin tools (wipefs, sfdisk, mkfs.*) must resolve regardless of who starts us
@@ -885,18 +886,10 @@ class H(BaseHTTPRequestHandler):
                 return ("Installed apps: " + ", ".join(names)) if names else \
                        "Only the terminal is installed so far."
 
-            def _power(a):
-                act = a.get("action")
-                if act in ("poweroff", "reboot"):
-                    subprocess.Popen(["systemctl", act])
-                    return "Shutting down…" if act == "poweroff" else "Restarting…"
-                return "I can power off or restart — which would you like?"
-
             executors = {
                 "open_terminal": _open_terminal,
                 "open_app": _open_app,
                 "list_apps": _list_apps,
-                "power": _power,
                 "set_brightness": lambda a: (f"Brightness set to {int(a.get('percent', 50))}%."
                                              if brightness_set(int(a.get("percent", 50)))
                                              else "This device has no software-controllable backlight."),
@@ -907,6 +900,12 @@ class H(BaseHTTPRequestHandler):
             # reliable at emitting tool-call JSON, so match clear intents directly
             # and only defer to the model for open-ended chat.
             ql = q.strip().lower()
+            # Power never runs from /ask (this is the unprivileged session aurorad):
+            # the Aura panel asks Power off / Cancel, then calls the root /system/power.
+            power = aura_power.power_request(ql)
+            if power:
+                self._send(aura_power.confirm_payload(power))
+                return
             shortcut = None
             if re.search(r"\b(open|launch|start|new|run)\b.*\b(terminal|term|console|shell)\b", ql) \
                or ql in ("terminal", "cli"):
@@ -922,10 +921,6 @@ class H(BaseHTTPRequestHandler):
                 m2 = re.search(r"(\d{1,3})", ql)
                 shortcut = executors["set_brightness"](
                     {"percent": m2.group(1) if m2 else 50})
-            elif re.search(r"\b(shut\s?down|power\s?off|turn\s?off)\b", ql):
-                shortcut = _power({"action": "poweroff"})
-            elif re.search(r"\b(restart|reboot)\b", ql):
-                shortcut = _power({"action": "reboot"})
             else:
                 m = re.match(r"(?:open|launch|start|run)\s+(?:the\s+|an?\s+)?(.+)", ql)
                 if m:

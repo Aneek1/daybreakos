@@ -8,7 +8,5 @@
   {"name": "system_status", "side": "system", "description": "Report battery, network, and uptime from real hardware.",
    "args": {}},
   {"name": "set_brightness", "side": "system", "description": "Set screen brightness on real hardware.",
-   "args": {"percent": "integer 0-100"}},
-  {"name": "power", "side": "system", "description": "Power off or restart the computer.",
-   "args": {"action": "one of: poweroff, reboot"}}
+   "args": {"percent": "integer 0-100"}}
 ]
