@@ -265,3 +265,37 @@ def test_call_llama_gives_schema_mode_room_for_the_json_wrapper(monkeypatch):
     aura_llm.call_llama("S", "U", schema={"type": "object"})
     assert bodies[0]["max_tokens"] == 128
     assert bodies[1]["max_tokens"] == 192
+
+def test_alias_maps_every_name_to_a_registry_tool():
+    names = {t["name"] for t in aura_llm.load_tools()}
+    for invented, (target, _args) in aura_llm._ALIASES.items():
+        assert target in names, "%s maps to %s which is not a registry tool" % (invented, target)
+
+def test_alias_rewrites_invented_open_names():
+    tools = aura_llm.load_tools()
+    calls = aura_llm.apply_aliases([{"cmd": "open_settings", "args": {}}], tools)
+    assert calls == [{"cmd": "open_app", "args": {"name": "settings"}}]
+    assert aura_llm.validate_call(calls[0], tools)
+
+def test_alias_rewrites_invented_status_names():
+    tools = aura_llm.load_tools()
+    for invented in ("check_battery_status", "check_network", "check_network_status", "system_health_check"):
+        calls = aura_llm.apply_aliases([{"cmd": invented, "args": {}}], tools)
+        assert calls == [{"cmd": "system_status", "args": {}}], invented
+
+def test_alias_keeps_a_valid_model_argument():
+    tools = aura_llm.load_tools()
+    calls = aura_llm.apply_aliases([{"cmd": "open_browser", "args": {"name": "firefox"}}], tools)
+    assert calls == [{"cmd": "open_app", "args": {"name": "firefox"}}]
+
+def test_alias_cannot_introduce_an_undeclared_argument():
+    tools = aura_llm.load_tools()
+    calls = aura_llm.apply_aliases([{"cmd": "check_network", "args": {"rm": "-rf"}}], tools)
+    assert calls == [{"cmd": "system_status", "args": {}}]
+    assert aura_llm.validate_call(calls[0], tools)
+
+def test_unknown_name_without_an_alias_is_left_alone():
+    tools = aura_llm.load_tools()
+    calls = aura_llm.apply_aliases([{"cmd": "delete_everything", "args": {}}], tools)
+    assert calls == [{"cmd": "delete_everything", "args": {}}]
+    assert not aura_llm.validate_call(calls[0], tools)

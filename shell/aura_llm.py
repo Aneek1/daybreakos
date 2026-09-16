@@ -131,6 +131,38 @@ def parse_model_output(text):
         return {"reply": cut, "tool_calls": []}
     return {"reply": text, "tool_calls": []}
 
+# Tool names the model invents while meaning a real tool. Every entry was
+# observed in tests/results/*.json, and none of these names ever appeared on a
+# chit-chat or power case, so accepting them adds no measured false action.
+# The value is (registry tool, default args); a model-supplied argument is kept
+# only when the alias declares that key, so an alias can never introduce one the
+# tool does not accept.
+_ALIASES = {
+    "open_settings": ("open_app", {"name": "settings"}),
+    "open_browser": ("open_app", {"name": "web browser"}),
+    "check_battery_status": ("system_status", {}),
+    "check_network": ("system_status", {}),
+    "check_network_status": ("system_status", {}),
+    "system_health_check": ("system_status", {}),
+}
+
+def apply_aliases(calls, tools):
+    """Rewrite known invented tool names onto the registry tool they meant.
+    Unknown names are passed through untouched for validate_call to drop."""
+    known = {t["name"] for t in tools}
+    out = []
+    for call in calls:
+        target = _ALIASES.get(call.get("cmd"))
+        if target is None or target[0] not in known:
+            out.append(call)
+            continue
+        name, defaults = target
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        merged = dict(defaults)
+        merged.update({k: v for k, v in args.items() if k in defaults})
+        out.append({"cmd": name, "args": merged})
+    return out
+
 # A schema-mode reply cut off at max_tokens has no closing brace. When the cut is
 # inside the "reply" string, keep that text (free mode shows the same text cut
 # short). If the reply string closed and the cut is later, a tool call may be
@@ -276,7 +308,9 @@ def ask(user_text, executors=None, status=None, tools=None):
     if raw is None:
         return {"a": heuristic_fallback(user_text, status), "actions": []}
     parsed = parse_model_output(raw)
-    calls = parsed["tool_calls"]
+    # Aliases are applied here, not in parse_model_output, so model-level
+    # evaluation still sees exactly what the model produced.
+    calls = apply_aliases(parsed["tool_calls"], tools)
     if calls and not _has_action_intent(user_text):
         calls = []   # model invented an action for conversational input — ignore it
     actions, notes = route(calls, tools, executors)
