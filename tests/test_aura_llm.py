@@ -197,6 +197,10 @@ def test_free_prompt_is_unchanged():
         "Only when the user clearly asks you to perform a desktop action, reply with "
         "a single JSON object and nothing else, for example:\n"
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
+        'A request about the machine is an action too — "how is my machine doing" is '
+        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]} and '
+        '"which programs are on here" is '
+        '{"reply": "Listing them.", "tool_calls": [{"cmd": "list_apps", "args": {}}]}\n'
         "Available actions:\n- open_terminal: Open a terminal. args: none\n"
         "Use only these actions with these args; never invent them. For ordinary "
         "conversation, questions, or explanations, just answer in plain text.")
@@ -348,3 +352,11 @@ def test_ask_drops_a_call_when_the_gate_refuses_the_phrasing(monkeypatch):
         lambda s, u, schema=None: '{"reply":"Sure.","tool_calls":[{"cmd":"open_terminal","args":{}}]}')
     out = aura_llm.ask("what is a terminal?", executors={"open_terminal": lambda a: "opened"}, status={})
     assert out["actions"] == []
+
+def test_prompt_shows_a_status_and_a_list_example():
+    tools = aura_llm.load_tools()
+    system, _ = aura_llm.build_prompt(tools, "x")
+    assert '"cmd": "system_status"' in system
+    assert '"cmd": "list_apps"' in system
+    assert "how is my machine doing" in system
+    assert "which programs are on here" in system
