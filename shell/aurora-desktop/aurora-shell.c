@@ -401,7 +401,16 @@ static char *aura_reply_text(const char *json) {
         char *reply = json_string_after(json, keys[k]);
         if (reply) return reply;
     }
-    return g_strndup(json, 400);
+    /* The reply carried none of the keys a reply uses. Printing it raw shows an
+     * error, or an echo of the request, as though Aura had said it. Report the
+     * shape instead: an error field is worth surfacing, anything else is not. */
+    char *err = json_string_after(json, "error");
+    if (err) {
+        char *msg = g_strdup_printf("Aura couldn't answer: %s", err);
+        g_free(err);
+        return msg;
+    }
+    return g_strdup("Aura returned something I couldn't read. Nothing was run.");
 }
 
 static char *aura_ask(const char *q) {
@@ -428,9 +437,35 @@ static GtkWidget *aura_add_msg(const char *text, gboolean user) {
 /* Aura runs the LLM request on a worker thread so a slow on-device model never
  * freezes the desktop. The worker builds a result and hands it back to the GTK
  * main thread via g_idle_add (all widget access stays on the main thread). */
-typedef struct { char *q; GtkWidget *bubble; GtkWidget *entry; } AuraJob;
+typedef struct AuraWait AuraWait;
+typedef struct { char *q; GtkWidget *bubble; GtkWidget *entry; AuraWait *wait; } AuraJob;
+
+/* The on-device model can take 30-60 s for a reply on a slow machine. A static
+ * "…" is indistinguishable from a hang, so the placeholder animates and starts
+ * naming the wait once it is long enough to worry about. */
+struct AuraWait { GtkWidget *bubble; guint timer; gint64 started; int dots; };
+
+static gboolean aura_wait_tick(gpointer data) {
+    AuraWait *w = data;
+    if (!GTK_IS_LABEL(w->bubble)) { w->timer = 0; return G_SOURCE_REMOVE; }
+    static const char *dots[] = {"·", "· ·", "· · ·"};
+    int secs = (int)((g_get_monotonic_time() - w->started) / G_USEC_PER_SEC);
+    char *text = secs < 5
+        ? g_strdup_printf("Thinking %s", dots[w->dots % 3])
+        : g_strdup_printf("Thinking %s  %ds", dots[w->dots % 3], secs);
+    gtk_label_set_text(GTK_LABEL(w->bubble), text);
+    g_free(text);
+    w->dots++;
+    return G_SOURCE_CONTINUE;
+}
+
+static void aura_wait_stop(AuraWait *w) {
+    if (!w) return;
+    if (w->timer) g_source_remove(w->timer);
+    g_free(w);
+}
 typedef struct {
-    char *reply; GtkWidget *bubble; GtkWidget *entry;
+    char *reply; GtkWidget *bubble; GtkWidget *entry; AuraWait *wait;
     char *confirm_action, *confirm_label; int confirm_secs;   /* confirm_action NULL: no buttons */
 } AuraResult;
 
@@ -492,6 +527,7 @@ static void aura_add_confirm(AuraResult *r) {
 
 static gboolean aura_apply_result(gpointer data) {
     AuraResult *r = data;
+    aura_wait_stop(r->wait);    /* before the text is set, or the ticker overwrites it */
     gtk_label_set_text(GTK_LABEL(r->bubble), r->reply ? r->reply : "(no reply)");
     if (r->confirm_action) aura_add_confirm(r);
     gtk_widget_set_sensitive(r->entry, TRUE);
@@ -510,6 +546,7 @@ static gpointer aura_worker(gpointer data) {
     r->reply = aura_reply_text(json);
     r->bubble = j->bubble;
     r->entry = j->entry;
+    r->wait = j->wait;          /* the UI thread stops the ticker before it writes the reply */
     const char *confirm = json ? strstr(json, "\"confirm\"") : NULL;
     if (confirm) {
         r->confirm_action = json_string_after(confirm, "action");
@@ -531,13 +568,18 @@ static void aura_submit(GtkEntry *entry, gpointer u) {
     const char *q = gtk_entry_get_text(entry);
     if (!q || !*q) return;
     aura_add_msg(q, TRUE);
-    GtkWidget *bubble = aura_add_msg("…", FALSE);   /* thinking placeholder */
+    GtkWidget *bubble = aura_add_msg("Thinking ·", FALSE);   /* animated by aura_wait_tick */
     gtk_entry_set_text(entry, "");
     gtk_widget_set_sensitive(GTK_WIDGET(entry), FALSE);
+    AuraWait *w = g_new0(AuraWait, 1);
+    w->bubble = bubble;
+    w->started = g_get_monotonic_time();
+    w->timer = g_timeout_add(400, aura_wait_tick, w);
     AuraJob *j = g_new0(AuraJob, 1);
     j->q = g_strdup(q);
     j->bubble = bubble;
     j->entry = GTK_WIDGET(entry);
+    j->wait = w;
     GThread *t = g_thread_new("aura-ask", aura_worker, j);
     if (t) g_thread_unref(t);
 }
