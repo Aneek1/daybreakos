@@ -691,14 +691,29 @@ Expected: only `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` (about 986 MB) remains. The 3
 **The build script excludes the model by default (found 2026-09-16).** `build-full-iso.sh` in that copy re-squashes with `-e opt/aura/models` on its `mksquashfs` line, because the shipped ISO downloads the model after install. Left alone it would undo Step 4 and produce a 1.1 GB ISO with no model, so for this test ISO drop that one exclusion first, keeping a backup, and restore the backup after Step 6:
 
 ```bash
-wsl.exe -d Ubuntu -u root -e bash -c "cd /home/aneekchattopadhyay/auroraos-x86 && cp build-full-iso.sh build-full-iso.sh.bak && python3 - <<'PY'
+wsl.exe -d Ubuntu -u root -e bash -c "cd /home/aneekchattopadhyay/auroraos-x86 && python3 - <<'PY'
+import os, shutil
+BAK = 'build-full-iso.sh.bak'
+# A leftover .bak means an earlier attempt was interrupted between this step and
+# Step 6's restore: the .bak is then the last good copy and build-full-iso.sh is
+# already stripped. Restore from it first, and never write the backup before the
+# assert below has confirmed what is being backed up.
+if os.path.exists(BAK):
+    shutil.copyfile(BAK, 'build-full-iso.sh')
 s = open('build-full-iso.sh').read()
 assert s.count(' -e opt/aura/models') == 1, s.count(' -e opt/aura/models')
+shutil.copyfile('build-full-iso.sh', BAK)
 open('build-full-iso.sh','w').write(s.replace(' -e opt/aura/models', '', 1))
 PY"
 ```
 
 This one flag is the only edit made to that copy's build scripts; nothing is copied over it.
+
+This step is safe to re-run after an interrupted build — the failure mode two
+paragraphs below, where WSL's idle timeout kills the container mid-build, leaves
+exactly that state. The backup is only written after the assert has confirmed the
+source still carries the exclusion, so a re-run can never overwrite the last good
+`build-full-iso.sh.bak` with an already-stripped script.
 
 ```bash
 wsl.exe -d Ubuntu -u root -e docker exec aurora-x86 bash /aurora/build-full-iso.sh 2>&1 | tail -20
