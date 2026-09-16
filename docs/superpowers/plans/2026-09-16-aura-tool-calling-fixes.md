@@ -596,7 +596,9 @@ Everything above is measured against a Python harness. This task puts the change
 - The last ISO, `/home/aneekchattopadhyay/auroraos-x86/daybreakos-1.0-desktop-full.iso` (1.12 GB, 17 July), does **not** bundle a model: its `live/rootfs.squashfs` is 1.09 GB. Aura downloads the model after install.
 - VirtualBox 7.2.12 is installed on Windows at `C:\Program Files\Oracle\VirtualBox\VBoxManage.exe`.
 
-**Deviation to confirm with the owner before Step 4:** this test ISO bundles the 1.5B model so the VM test does not depend on networking inside the VM, which makes the ISO roughly 1 GB larger. The shipped ISO's post-install download path is not changed by this task.
+**Confirmed by the owner (2026-09-16):** this test ISO bundles the 1.5B model so the VM test does not depend on networking inside the VM, which makes the ISO roughly 1 GB larger (about 2.1 GB total). The shipped ISO's post-install download path is not changed by this task.
+
+**This task is not unattended:** Steps 1-7 can run on their own, but Step 8 needs a person typing into the Aura panel and watching what happens. Stop after Step 7 and hand over.
 
 **Files:**
 - Modify (inside the build tree, not the repo): `/mnt/lfs/usr/lib/aurora/{aurorad,aura_llm.py,aura_power.py}`, `/mnt/lfs/opt/aura/config/aura-tools.json`, `/mnt/lfs/opt/aura/models/`
@@ -613,13 +615,17 @@ Expected: the kernel and `llama-server` listed, and the scripts directory readab
 
 - [ ] **Step 2: Sync the current code into the copy the build reads**
 
+**Read this before touching that copy (verified 2026-09-16):** it is a clone of `github.com/Aneek1/auroraos` — the *old* repo name, not `daybreakos` — sitting on `master` at `e207898`, with **uncommitted local modifications** to `config/extras.list`, `config/kernel.fragment`, `config/kernel-x86_64.fragment` and `scripts/06,07,08,10,11`. Those edits are what the working build tree was made from. **Never run `git pull`, `git checkout` or `git reset` there, and do not copy build scripts over the top of it.** Copy only the Aura files the rebuild needs:
+
 ```bash
 SRC="/mnt/c/Users/aneek.chattopadhyay/Desktop/Other Projects/auroraos"
-wsl.exe -d Ubuntu -u root -e sh -c "cp '$SRC/shell/aurorad.py' '$SRC/shell/aura_llm.py' '$SRC/shell/aura_power.py' /home/aneekchattopadhyay/auroraos-x86/shell/ && cp '$SRC/config/aura-tools.json' /home/aneekchattopadhyay/auroraos-x86/config/ && cp '$SRC/shell/aurora-desktop/aurora-shell.c' '$SRC/shell/aurora-desktop/style.css' /home/aneekchattopadhyay/auroraos-x86/shell/aurora-desktop/ && cp '$SRC/scripts/10-aurora-shell.sh' '$SRC/scripts/13-aurora-desktop.sh' /home/aneekchattopadhyay/auroraos-x86/scripts/"
-wsl.exe -d Ubuntu -u root -e sh -c "grep -c 'ctx-size 2048' /home/aneekchattopadhyay/auroraos-x86/scripts/10-aurora-shell.sh; ls -la /home/aneekchattopadhyay/auroraos-x86/shell/aura_power.py"
+wsl.exe -d Ubuntu -u root -e sh -c "cp '$SRC/shell/aurorad.py' '$SRC/shell/aura_llm.py' '$SRC/shell/aura_power.py' /home/aneekchattopadhyay/auroraos-x86/shell/ && cp '$SRC/config/aura-tools.json' /home/aneekchattopadhyay/auroraos-x86/config/ && cp '$SRC/shell/aurora-desktop/aurora-shell.c' '$SRC/shell/aurora-desktop/style.css' /home/aneekchattopadhyay/auroraos-x86/shell/aurora-desktop/"
+wsl.exe -d Ubuntu -u root -e sh -c "ls -la /home/aneekchattopadhyay/auroraos-x86/shell/aura_power.py /home/aneekchattopadhyay/auroraos-x86/shell/aura_llm.py; git -C /home/aneekchattopadhyay/auroraos-x86 status --short | head"
 ```
 
-Expected: `1` (the canonical context size from Task 5) and `aura_power.py` present.
+Expected: `aura_power.py` now present, `aura_llm.py` larger than its July size of 8,955 bytes, and the pre-existing local modifications still listed — this copy stays dirty on purpose.
+
+Script 10 is deliberately **not** copied: the model server in the image is started by `/usr/lib/aurora/aura-llm-launch`, which already passes `--ctx-size 2048`, so Task 5's change needs nothing here.
 
 - [ ] **Step 3: Refresh the installed Aura files inside the tree**
 
@@ -649,7 +655,7 @@ Expected: only `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` (about 986 MB) remains. The 3
 - [ ] **Step 5: Rebuild the ISO**
 
 ```bash
-wsl.exe -d Ubuntu -u root -e docker exec aurora-x86 bash /aurora/scripts/build-full-iso.sh 2>&1 | tail -20
+wsl.exe -d Ubuntu -u root -e docker exec aurora-x86 bash /aurora/build-full-iso.sh 2>&1 | tail -20
 ```
 
 Expected: a `shell: <N> bytes` line, then the squashfs and `xorriso` steps, ending with the ISO written to `/aurora/daybreakos-1.0-desktop-full.iso`. Allow 30-60 minutes. If the script fails, capture the failing command and stop.
