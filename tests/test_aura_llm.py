@@ -197,8 +197,8 @@ def test_free_prompt_is_unchanged():
         "Only when the user clearly asks you to perform a desktop action, reply with "
         "a single JSON object and nothing else, for example:\n"
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        '"how is my machine doing" is {"cmd":"system_status","args":{}}\n'
-        '"which programs are on here" is {"cmd":"list_apps","args":{}}\n'
+        '"how is my machine doing" is '
+        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]}\n'
         "Available actions:\n- open_terminal: Open a terminal. args: none\n"
         "Use only these actions with these args; never invent them. For ordinary "
         "conversation, questions, or explanations, just answer in plain text.")
@@ -366,13 +366,24 @@ def test_prompt_examples_stay_within_the_token_budget():
     tiktoken = pytest.importorskip("tiktoken")
     assert len(tiktoken.get_encoding("cl100k_base").encode(added)) < 40
 
-def test_prompt_shows_a_status_and_a_list_example():
+def test_prompt_shows_a_status_example():
     tools = aura_llm.load_tools()
     system, _ = aura_llm.build_prompt(tools, "x")
-    assert '"cmd":"system_status"' in system
-    assert '"cmd":"list_apps"' in system
+    assert '"cmd": "system_status"' in system
     assert "how is my machine doing" in system
-    assert "which programs are on here" in system
+
+def test_every_json_object_in_the_prompt_survives_the_parser():
+    """The model copies the shape it is shown. A bare {"cmd": ...} example made it
+    emit calls that parse_model_output discards, which measured 0/40 before anyone
+    noticed: the length budget and the pinned-prompt test both passed."""
+    import re
+    for mode in (False, True):
+        system, _ = aura_llm.build_prompt(aura_llm.load_tools(), "x", schema_mode=mode)
+        objects = re.findall(r"\{.*\}", system)
+        assert objects, "the prompt shows no worked example"
+        for obj in objects:
+            parsed = aura_llm.parse_model_output(obj)
+            assert parsed["tool_calls"], "example is not a shape the parser keeps: %s" % obj
 
 def test_response_schema_allows_at_most_one_call():
     calls = aura_llm.response_schema(aura_llm.load_tools())["properties"]["tool_calls"]

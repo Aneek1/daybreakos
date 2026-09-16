@@ -303,7 +303,9 @@ git commit -m "Stop the action gate discarding correct calls, and refuse questio
 
 ### Task 3: Worked examples in the prompt
 
-Eight of the model's errors are producing no call at all, concentrated in status and list phrasings that read like questions. One worked example of each shape goes in the free-mode prompt. `test_free_prompt_is_unchanged` pins the prompt text, so it is updated in the same task.
+Eight of the model's errors are producing no call at all, concentrated in status and list phrasings that read like questions. One worked example goes in the free-mode prompt. `test_free_prompt_is_unchanged` pins the prompt text, so it is updated in the same task.
+
+> **Corrected 2026-09-16 after a measured failure.** The first attempt added two examples in bare `{"cmd": ...}` form to fit the 140-character budget. `parse_model_output` only keeps objects containing `reply` or `tool_calls`, the model copied the bare shape it was shown, and the next measurement scored **0/40 on tool accuracy and 0/40 on valid JSON**. Neither the budget test (length only) nor the pinned-prompt test (pins whatever string exists) could catch it. The rule now: **every worked example must be a full `{reply, tool_calls}` object.** The owner chose one wrapped status example (106 characters, 31 tokens, inside the budget) over two bare ones, and a guard test asserts every JSON object in the prompt survives the parser.
 
 **Files:**
 - Modify: `shell/aura_llm.py:70-94` (`build_prompt`)
