@@ -130,7 +130,7 @@ Description=Aura on-device LLM (llama.cpp)
 After=network.target
 [Service]
 User=aurora
-ExecStart=/opt/aura/bin/llama-server --model /opt/aura/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096
+ExecStart=/opt/aura/bin/llama-server --model /opt/aura/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf --host 127.0.0.1 --port 8080 --ctx-size 2048
 Restart=on-failure
 [Install]
 WantedBy=multi-user.target
