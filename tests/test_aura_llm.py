@@ -197,10 +197,8 @@ def test_free_prompt_is_unchanged():
         "Only when the user clearly asks you to perform a desktop action, reply with "
         "a single JSON object and nothing else, for example:\n"
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        'A request about the machine is an action too — "how is my machine doing" is '
-        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]} and '
-        '"which programs are on here" is '
-        '{"reply": "Listing them.", "tool_calls": [{"cmd": "list_apps", "args": {}}]}\n'
+        '"how is my machine doing" is {"cmd":"system_status","args":{}}\n'
+        '"which programs are on here" is {"cmd":"list_apps","args":{}}\n'
         "Available actions:\n- open_terminal: Open a terminal. args: none\n"
         "Use only these actions with these args; never invent them. For ordinary "
         "conversation, questions, or explanations, just answer in plain text.")
@@ -353,10 +351,25 @@ def test_ask_drops_a_call_when_the_gate_refuses_the_phrasing(monkeypatch):
     out = aura_llm.ask("what is a terminal?", executors={"open_terminal": lambda a: "opened"}, status={})
     assert out["actions"] == []
 
+def _added_examples(system):
+    """The example lines added beyond the original open_terminal one."""
+    block = system.split("for example:\n", 1)[1].split("Available actions:\n", 1)[0]
+    return block.split("\n", 1)[1]
+
+def test_prompt_examples_stay_within_the_token_budget():
+    system, _ = aura_llm.build_prompt(aura_llm.load_tools(), "x")
+    added = _added_examples(system)
+    # The design budgets the added prompt text at under 40 tokens. Characters are
+    # the tokenizer-free proxy (~3.2 chars/token for this JSON-dense text).
+    assert len(added) <= 140, len(added)
+    import pytest
+    tiktoken = pytest.importorskip("tiktoken")
+    assert len(tiktoken.get_encoding("cl100k_base").encode(added)) < 40
+
 def test_prompt_shows_a_status_and_a_list_example():
     tools = aura_llm.load_tools()
     system, _ = aura_llm.build_prompt(tools, "x")
-    assert '"cmd": "system_status"' in system
-    assert '"cmd": "list_apps"' in system
+    assert '"cmd":"system_status"' in system
+    assert '"cmd":"list_apps"' in system
     assert "how is my machine doing" in system
     assert "which programs are on here" in system

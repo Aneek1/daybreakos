@@ -90,10 +90,8 @@ def build_prompt(tools, user_text, schema_mode=False):
         lines.append(f'- {t["name"]}: {t["description"]} args: {args}')
     example = (
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        'A request about the machine is an action too — "how is my machine doing" is '
-        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]} and '
-        '"which programs are on here" is '
-        '{"reply": "Listing them.", "tool_calls": [{"cmd": "list_apps", "args": {}}]}\n')
+        '"how is my machine doing" is {"cmd":"system_status","args":{}}\n'
+        '"which programs are on here" is {"cmd":"list_apps","args":{}}\n')
     intro = (
         "You are Aura, the friendly on-device AI assistant built into DaybreakOS, a "
         "Linux desktop. You run entirely on the user's own device — no cloud. "
