@@ -58,3 +58,17 @@ def test_typed_power_request_returns_confirmation_and_skips_model(tmp_path):
         assert "confirm" not in wifi and wifi["actions"] == []
     finally:
         dm.terminate(); sm.terminate()
+
+def test_an_empty_question_never_reaches_the_model(tmp_path):
+    """The panel sent {"q": ""} on every message for as long as it existed. An empty
+    question matches no fast-path pattern, so it reached the model as an empty turn and
+    the small model answered from the prompt itself, echoing the example question back
+    as though the user had asked it. The stub here would run a tool if it were consulted."""
+    sm, dm, dport = _start(tmp_path, '{"reply":"Opening.","tool_calls":[{"cmd":"open_terminal","args":{}}]}')
+    try:
+        for q in ("", "   ", "\n"):
+            out = _ask(dport, q)
+            assert out["actions"] == [], "an empty ask reached the model: %r" % out
+            assert "didn't catch that" in out["a"]
+    finally:
+        dm.terminate(); sm.terminate()

@@ -565,8 +565,12 @@ static gpointer aura_worker(gpointer data) {
 }
 
 static void aura_submit(GtkEntry *entry, gpointer u) {
-    const char *q = gtk_entry_get_text(entry);
-    if (!q || !*q) return;
+    /* gtk_entry_get_text hands back the entry's own buffer, not a copy. Clearing the
+     * entry below empties that buffer, so the text must be owned BEFORE the clear:
+     * copying it afterwards sent {"q":""} on every message, which matched none of
+     * aurorad's fast-path patterns and left the model answering an empty turn. */
+    char *q = g_strdup(gtk_entry_get_text(entry));
+    if (!q || !*q) { g_free(q); return; }
     aura_add_msg(q, TRUE);
     GtkWidget *bubble = aura_add_msg("Thinking ·", FALSE);   /* animated by aura_wait_tick */
     gtk_entry_set_text(entry, "");
@@ -576,7 +580,7 @@ static void aura_submit(GtkEntry *entry, gpointer u) {
     w->started = g_get_monotonic_time();
     w->timer = g_timeout_add(400, aura_wait_tick, w);
     AuraJob *j = g_new0(AuraJob, 1);
-    j->q = g_strdup(q);
+    j->q = q;                 /* ownership moves to the job; aura_worker frees it */
     j->bubble = bubble;
     j->entry = GTK_WIDGET(entry);
     j->wait = w;

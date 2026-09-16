@@ -870,6 +870,14 @@ class H(BaseHTTPRequestHandler):
                 self._send({"error": "unknown app"}, 403)
         elif self.path == "/ask":
             q = data.get("q") or ""
+            # An empty question matches no fast-path pattern and reaches the model as an
+            # empty turn, which makes a small model answer from the prompt itself — it
+            # echoed the example question back as though the user had asked it. Nothing
+            # useful can come of an empty ask, so it never reaches the model.
+            if not q.strip():
+                self._send({"a": "I didn't catch that — type a message and I'll answer.",
+                            "actions": []})
+                return
             status = {"battery": battery(), "brightness": brightness_get(),
                       "net": net_up(), "os": "DaybreakOS"}
             env = {**os.environ,
