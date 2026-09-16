@@ -688,11 +688,25 @@ Expected: only `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` (about 986 MB) remains. The 3
 
 - [ ] **Step 5: Rebuild the ISO**
 
+**The build script excludes the model by default (found 2026-09-16).** `build-full-iso.sh` in that copy re-squashes with `-e opt/aura/models` on its `mksquashfs` line, because the shipped ISO downloads the model after install. Left alone it would undo Step 4 and produce a 1.1 GB ISO with no model, so for this test ISO drop that one exclusion first, keeping a backup, and restore the backup after Step 6:
+
+```bash
+wsl.exe -d Ubuntu -u root -e bash -c "cd /home/aneekchattopadhyay/auroraos-x86 && cp build-full-iso.sh build-full-iso.sh.bak && python3 - <<'PY'
+s = open('build-full-iso.sh').read()
+assert s.count(' -e opt/aura/models') == 1, s.count(' -e opt/aura/models')
+open('build-full-iso.sh','w').write(s.replace(' -e opt/aura/models', '', 1))
+PY"
+```
+
+This one flag is the only edit made to that copy's build scripts; nothing is copied over it.
+
 ```bash
 wsl.exe -d Ubuntu -u root -e docker exec aurora-x86 bash /aurora/build-full-iso.sh 2>&1 | tail -20
 ```
 
-Expected: a `shell: <N> bytes` line, then the squashfs and `xorriso` steps, ending with the ISO written to `/aurora/daybreakos-1.0-desktop-full.iso`. Allow 30-60 minutes. If the script fails, capture the failing command and stop.
+Expected: a `shell: <N> bytes` line, then the squashfs and `xorriso` steps, ending with the ISO written to `/aurora/daybreakos-1.0-desktop-full.iso`, about 2.1 GB now that the model is inside it. Allow 30-60 minutes. If the script fails, capture the failing command and stop.
+
+**The container dies when nothing holds WSL open (found 2026-09-16).** The container's command is `sleep infinity`, but a `wsl.exe ... docker start` that returns immediately leaves no WSL process running, and the WSL VM's idle timeout tears the VM down within a minute, killing the container with exit 255. Run `docker start` and the build inside a single `wsl.exe` invocation that stays in the foreground for the whole build, so WSL stays anchored.
 
 - [ ] **Step 6: Copy the ISO to Windows and record its fingerprint**
 
@@ -702,6 +716,16 @@ ls -la "/c/Users/aneek.chattopadhyay/Desktop/daybreakos-2026-09-16.iso"
 ```
 
 Expected: a checksum (record it) and the ISO on the Desktop.
+
+Now restore the build script's model exclusion, which Step 5 removed, so the next
+build of that copy ships the download-after-install ISO again:
+
+```bash
+wsl.exe -d Ubuntu -u root -e bash -c "cd /home/aneekchattopadhyay/auroraos-x86 && mv build-full-iso.sh.bak build-full-iso.sh && grep -c -- '-e opt/aura/models' build-full-iso.sh"
+```
+
+Expected: `1` -- the exclusion is back on the `mksquashfs` line, and no
+`build-full-iso.sh.bak` is left behind.
 
 - [ ] **Step 7: Create and boot the VM**
 
