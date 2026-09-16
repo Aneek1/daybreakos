@@ -317,10 +317,25 @@ Append to `tests/test_aura_llm.py`:
 def test_prompt_shows_a_status_and_a_list_example():
     tools = aura_llm.load_tools()
     system, _ = aura_llm.build_prompt(tools, "x")
-    assert '"cmd": "system_status"' in system
-    assert '"cmd": "list_apps"' in system
+    assert '"cmd":"system_status"' in system
+    assert '"cmd":"list_apps"' in system
     assert "how is my machine doing" in system
     assert "which programs are on here" in system
+
+def _added_examples(system):
+    """The example lines added beyond the original open_terminal one."""
+    block = system.split("for example:\n", 1)[1].split("Available actions:\n", 1)[0]
+    return block.split("\n", 1)[1]
+
+def test_prompt_examples_stay_within_the_token_budget():
+    system, _ = aura_llm.build_prompt(aura_llm.load_tools(), "x")
+    added = _added_examples(system)
+    # The design budgets the added prompt text at under 40 tokens. Characters are
+    # the tokenizer-free proxy (~3.2 chars/token for this JSON-dense text).
+    assert len(added) <= 140, len(added)
+    import pytest
+    tiktoken = pytest.importorskip("tiktoken")
+    assert len(tiktoken.get_encoding("cl100k_base").encode(added)) < 40
 ```
 
 In the same file, replace the body of `test_free_prompt_is_unchanged` so its expected string carries the two new example lines:
@@ -337,10 +352,8 @@ def test_free_prompt_is_unchanged():
         "Only when the user clearly asks you to perform a desktop action, reply with "
         "a single JSON object and nothing else, for example:\n"
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        'A request about the machine is an action too — "how is my machine doing" is '
-        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]} and '
-        '"which programs are on here" is '
-        '{"reply": "Listing them.", "tool_calls": [{"cmd": "list_apps", "args": {}}]}\n'
+        '"how is my machine doing" is {"cmd":"system_status","args":{}}\n'
+        '"which programs are on here" is {"cmd":"list_apps","args":{}}\n'
         "Available actions:\n- open_terminal: Open a terminal. args: none\n"
         "Use only these actions with these args; never invent them. For ordinary "
         "conversation, questions, or explanations, just answer in plain text.")
@@ -349,7 +362,7 @@ def test_free_prompt_is_unchanged():
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `2 failed, 49 passed` — the new test fails on the missing examples, and `test_free_prompt_is_unchanged` fails because the code still emits the old prompt.
+Expected: `3 failed, 49 passed` — the two new tests fail on the missing examples and the over-budget text, and `test_free_prompt_is_unchanged` fails because the code still emits the old prompt.
 
 - [ ] **Step 3: Implement**
 
@@ -364,10 +377,8 @@ with:
 ```python
     example = (
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        'A request about the machine is an action too — "how is my machine doing" is '
-        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]} and '
-        '"which programs are on here" is '
-        '{"reply": "Listing them.", "tool_calls": [{"cmd": "list_apps", "args": {}}]}\n')
+        '"how is my machine doing" is {"cmd":"system_status","args":{}}\n'
+        '"which programs are on here" is {"cmd":"list_apps","args":{}}\n')
 ```
 
 The wording deliberately differs from every phrase in `tests/aura_eval_cases.jsonl`, so the examples are not the test set.
@@ -375,10 +386,10 @@ The wording deliberately differs from every phrase in `tests/aura_eval_cases.jso
 - [ ] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `51 passed`
+Expected: `52 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `125 passed`
+Expected: `126 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -432,10 +443,10 @@ with:
 - [ ] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `52 passed`
+Expected: `53 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `126 passed`
+Expected: `127 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -497,7 +508,7 @@ Run: `python -m pytest tests/test_launcher_ctx.py -q -p no:cacheprovider`
 Expected: `1 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `127 passed`
+Expected: `128 passed`
 
 Run: `bash -n scripts/10-aurora-shell.sh`
 Expected: no output.
@@ -576,7 +587,7 @@ Replace the table in `README.md`'s "Aura evaluation" section with the generated 
 - [ ] **Step 6: Run the suite once more**
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `127 passed`
+Expected: `128 passed`
 
 - [ ] **Step 7: Commit**
 
