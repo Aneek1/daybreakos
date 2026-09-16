@@ -23,11 +23,19 @@ echo "== labwc autostart =="
 # type (overlay/tmpfs live -> installer, ext4 disk -> desktop), so the
 # autostart is plain unconditional lines.
 rm -f /mnt/lfs/usr/bin/aurora-shell-select /mnt/lfs/etc/aurora-installed
+# Stale July registries still list the power tool that the safety work took away from the
+# model. They are harmless only while AURA_TOOLS is exported: aura_llm._default_tools_path()
+# checks its own directory before /opt, so a leftover file wins the moment that export is
+# missing. Never ship one.
+rm -f /mnt/lfs/usr/lib/aurora/config/aura-tools.json /mnt/lfs/aurora/config/aura-tools.json
 install -d /mnt/lfs/etc/xdg/labwc
 cat > /mnt/lfs/etc/xdg/labwc/autostart <<'EOF'
 # DaybreakOS session autostart (labwc)
 # push DISPLAY (set by labwc's Xwayland) into the D-Bus activation env for portals
 ( sleep 2; dbus-update-activation-environment --all 2>/dev/null || dbus-update-activation-environment DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP 2>/dev/null ) &
+# Name the registry here rather than relying on aurora-session having exported it: aura_llm
+# searches its own directory first, and that is where a power-listing registry has shipped.
+export AURA_TOOLS=/opt/aura/config/aura-tools.json
 /usr/lib/aurora/aura-llm-launch &
 /usr/bin/python3 /usr/lib/aurora/aurorad &
 # launch the shell with DISPLAY=:0 so X11 apps it starts (Steam) reach Xwayland;
