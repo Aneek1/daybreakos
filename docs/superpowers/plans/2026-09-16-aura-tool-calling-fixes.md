@@ -4,7 +4,7 @@
 
 **Goal:** Stop Aura discarding correct tool calls and accept calls whose only fault is the tool name, so a typed request performs the action at least 85% of the time without raising false actions.
 
-**Architecture:** Four small changes inside `shell/aura_llm.py` (an alias table applied in `ask()`, a rewritten action gate, two worked prompt examples, an upper bound on the schema's tool-call array), one launcher change so both build scripts serve the model with the same context size, and a re-measurement with the existing harness. No new dependencies, no model changes, no training.
+**Architecture:** Four small changes inside `shell/aura_llm.py` (an alias table applied in `ask()`, a rewritten action gate, one worked prompt example in the shape the parser accepts, an upper bound on the schema's tool-call array), one launcher change so both build scripts serve the model with the same context size, and a re-measurement with the existing harness. No new dependencies, no model changes, no training.
 
 **Tech Stack:** Python 3 standard library only (the module ships to a Linux From Scratch target), pytest for unit tests, `tests/aura_eval.py` with llama.cpp b4589 for measurement.
 
@@ -309,20 +309,31 @@ Eight of the model's errors are producing no call at all, concentrated in status
 
 **Files:**
 - Modify: `shell/aura_llm.py:70-94` (`build_prompt`)
-- Test: `tests/test_aura_llm.py` (update `test_free_prompt_is_unchanged`, add one test)
+- Test: `tests/test_aura_llm.py` (update `test_free_prompt_is_unchanged`, add three tests: the status example, the length budget, and the parser guard)
 
 - [ ] **Step 1: Write the failing test and update the pinned prompt test**
 
 Append to `tests/test_aura_llm.py`:
 
 ```python
-def test_prompt_shows_a_status_and_a_list_example():
+def test_prompt_shows_a_status_example():
     tools = aura_llm.load_tools()
     system, _ = aura_llm.build_prompt(tools, "x")
-    assert '"cmd":"system_status"' in system
-    assert '"cmd":"list_apps"' in system
+    assert '"cmd": "system_status"' in system
     assert "how is my machine doing" in system
-    assert "which programs are on here" in system
+
+def test_every_json_object_in_the_prompt_survives_the_parser():
+    """The model copies the shape it is shown. A bare {"cmd": ...} example made it
+    emit calls that parse_model_output discards, which measured 0/40 before anyone
+    noticed: the length budget and the pinned-prompt test both passed."""
+    import re
+    for mode in (False, True):
+        system, _ = aura_llm.build_prompt(aura_llm.load_tools(), "x", schema_mode=mode)
+        objects = re.findall(r"\{.*\}", system)
+        assert objects, "the prompt shows no worked example"
+        for obj in objects:
+            parsed = aura_llm.parse_model_output(obj)
+            assert parsed["tool_calls"], "example is not a shape the parser keeps: %s" % obj
 
 def _added_examples(system):
     """The example lines added beyond the original open_terminal one."""
@@ -340,7 +351,7 @@ def test_prompt_examples_stay_within_the_token_budget():
     assert len(tiktoken.get_encoding("cl100k_base").encode(added)) < 40
 ```
 
-In the same file, replace the body of `test_free_prompt_is_unchanged` so its expected string carries the two new example lines:
+In the same file, replace the body of `test_free_prompt_is_unchanged` so its expected string carries the new wrapped example line:
 
 ```python
 def test_free_prompt_is_unchanged():
@@ -354,8 +365,8 @@ def test_free_prompt_is_unchanged():
         "Only when the user clearly asks you to perform a desktop action, reply with "
         "a single JSON object and nothing else, for example:\n"
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        '"how is my machine doing" is {"cmd":"system_status","args":{}}\n'
-        '"which programs are on here" is {"cmd":"list_apps","args":{}}\n'
+        '"how is my machine doing" is '
+        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]}\n'
         "Available actions:\n- open_terminal: Open a terminal. args: none\n"
         "Use only these actions with these args; never invent them. For ordinary "
         "conversation, questions, or explanations, just answer in plain text.")
@@ -364,7 +375,7 @@ def test_free_prompt_is_unchanged():
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `3 failed, 49 passed` — the two new tests fail on the missing examples and the over-budget text, and `test_free_prompt_is_unchanged` fails because the code still emits the old prompt.
+Expected: `4 failed, 49 passed` — the three new tests fail (missing example, over-budget text, and the parser guard finding no parseable example), and `test_free_prompt_is_unchanged` fails because the code still emits the old prompt.
 
 - [ ] **Step 3: Implement**
 
@@ -379,11 +390,13 @@ with:
 ```python
     example = (
         '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
-        '"how is my machine doing" is {"cmd":"system_status","args":{}}\n'
-        '"which programs are on here" is {"cmd":"list_apps","args":{}}\n')
+        # Every example must be a full {reply, tool_calls} object: the model copies
+        # the shape it sees, and parse_model_output discards anything else.
+        '"how is my machine doing" is '
+        '{"reply": "Checking.", "tool_calls": [{"cmd": "system_status", "args": {}}]}\n')
 ```
 
-The wording deliberately differs from every phrase in `tests/aura_eval_cases.jsonl`, so the examples are not the test set.
+The wording deliberately differs from every phrase in `tests/aura_eval_cases.jsonl`, so the example is not the test set. One wrapped example is 106 characters and 31 tokens, inside the budget; two wrapped examples would be 203 and would exceed it.
 
 - [ ] **Step 4: Run the tests**
 
@@ -391,13 +404,13 @@ Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
 Expected: `52 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `126 passed`
+Expected: `127 passed`
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add shell/aura_llm.py tests/test_aura_llm.py
-git commit -m "Show the model a status and a list example in the prompt"
+git commit -m "Show the model a wrapped status example in the prompt"
 ```
 
 ---
@@ -448,7 +461,7 @@ Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
 Expected: `53 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `127 passed`
+Expected: `128 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -510,7 +523,7 @@ Run: `python -m pytest tests/test_launcher_ctx.py -q -p no:cacheprovider`
 Expected: `1 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `128 passed`
+Expected: `129 passed`
 
 Run: `bash -n scripts/10-aurora-shell.sh`
 Expected: no output.
@@ -589,7 +602,7 @@ Replace the table in `README.md`'s "Aura evaluation" section with the generated 
 - [ ] **Step 6: Run the suite once more**
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `128 passed`
+Expected: `129 passed`
 
 - [ ] **Step 7: Commit**
 
