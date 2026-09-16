@@ -299,3 +299,45 @@ def test_unknown_name_without_an_alias_is_left_alone():
     calls = aura_llm.apply_aliases([{"cmd": "delete_everything", "args": {}}], tools)
     assert calls == [{"cmd": "delete_everything", "args": {}}]
     assert not aura_llm.validate_call(calls[0], tools)
+
+import json as _json, pathlib as _pathlib
+
+_CASES = [_json.loads(line) for line in
+          (_pathlib.Path(__file__).resolve().parent / "aura_eval_cases.jsonl")
+          .read_text(encoding="utf-8").splitlines() if line.strip()]
+
+def test_gate_admits_the_phrasings_it_used_to_drop():
+    for say in ("how much battery is left", "what's my uptime", "dim the screen to 20 percent",
+                "give me a command line", "what software is on this computer",
+                "how is the system doing", "check the system health", "brightnes to 5",
+                "lauch aurora settings", "is the network up"):
+        assert aura_llm.action_allowed(say), say
+
+def test_gate_refuses_question_and_acknowledgement_shapes():
+    for say in ("how do i change brightness myself?", "what does uptime mean",
+                "what is a terminal?", "how do apps get installed on linux",
+                "ok", "thanks!", "never mind", "why is the sky blue",
+                "explain what an operating system is", "write a haiku about the sea"):
+        assert not aura_llm.action_allowed(say), say
+
+def test_gate_refuses_requests_for_things_that_are_not_tools():
+    for say in ("turn off wi-fi", "switch to light mode", "tile my windows", "lock the screen"):
+        assert not aura_llm.action_allowed(say), say
+
+def test_gate_admits_every_tool_case_in_the_eval_set():
+    for case in _CASES:
+        if case["kind"] == "tool":
+            assert aura_llm.action_allowed(case["say"]), case["say"]
+
+def test_gate_refuses_every_chit_chat_case_in_the_eval_set():
+    # Power phrasings are excluded on purpose: aura_power handles them before the
+    # model is consulted, and they legitimately contain action words.
+    for case in _CASES:
+        if case["kind"] == "negative":
+            assert not aura_llm.action_allowed(case["say"]), case["say"]
+
+def test_ask_drops_a_call_when_the_gate_refuses_the_phrasing(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama",
+        lambda s, u, schema=None: '{"reply":"Sure.","tool_calls":[{"cmd":"open_terminal","args":{}}]}')
+    out = aura_llm.ask("what is a terminal?", executors={"open_terminal": lambda a: "opened"}, status={})
+    assert out["actions"] == []

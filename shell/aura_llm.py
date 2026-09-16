@@ -2,17 +2,32 @@
 Stdlib only (ships to the LFS target). aurorad.py calls ask()."""
 import json, os, re, urllib.request, urllib.error
 
-# Small on-device models can hallucinate a tool call for plain chit-chat
-# (e.g. "hi" -> open_terminal). A model-emitted action is only honored when the
-# user's own words show action intent; otherwise the call is dropped and we just
-# chat. Deterministic commands are already handled upstream in aurorad.py.
-_ACTION_CUE = re.compile(
-    r"\b(open|launch|start|run|show|list|close|quit|set|turn|adjust|"
-    r"shut\s?down|power|reboot|restart|brightness|status|uptime|"
-    r"terminal|app|apps)\b", re.I)
+# Small on-device models hallucinate a tool call for plain chit-chat ("hi" ->
+# open_terminal), so a model-emitted action is only honored when the user's own
+# words ask for one. Two patterns decide it, in order: shapes that are questions
+# or acknowledgements are refused outright, then an action word is required.
+# Both lists are drawn from measured runs in tests/results/, not from guesswork.
+_NO_ACTION = re.compile(
+    r"^\s*(ok|okay|thanks|thank you|never\s?mind)\b"
+    r"|\bhow do\b"
+    r"|\bwhat (is|are|does|time)\b"
+    r"|\bwhy\b|\bexplain\b|\btell me\b|\bwrite a\b|\bwho made\b|\bare you\b|\bi love\b"
+    r"|\btile\b|\blight mode\b|\bdark mode\b|\block the screen\b|\bwi-?fi\b", re.I)
 
-def _has_action_intent(text):
-    return bool(_ACTION_CUE.search(text or ""))
+_ACTION_CUE = re.compile(
+    r"\b(open|launch|lauch|start|run|show|list|close|quit|set|turn|adjust|check|dim|"
+    r"shut\s?down|power|reboot|restart|bright\w*|status|uptime|battery|network|"
+    r"software|installed|settings|system|terminal|app|apps)\b"
+    r"|\bcommand line\b", re.I)
+
+def action_allowed(text):
+    """True when the user's words ask for a desktop action. Question and
+    acknowledgement shapes are refused first: those produced the valid-but-
+    unwanted calls in the measured runs."""
+    t = text or ""
+    if _NO_ACTION.search(t):
+        return False
+    return bool(_ACTION_CUE.search(t))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -311,7 +326,7 @@ def ask(user_text, executors=None, status=None, tools=None):
     # Aliases are applied here, not in parse_model_output, so model-level
     # evaluation still sees exactly what the model produced.
     calls = apply_aliases(parsed["tool_calls"], tools)
-    if calls and not _has_action_intent(user_text):
+    if calls and not action_allowed(user_text):
         calls = []   # model invented an action for conversational input — ignore it
     actions, notes = route(calls, tools, executors)
     reply = parsed["reply"] or ""
