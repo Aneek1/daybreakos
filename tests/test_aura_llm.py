@@ -373,3 +373,7 @@ def test_prompt_shows_a_status_and_a_list_example():
     assert '"cmd":"list_apps"' in system
     assert "how is my machine doing" in system
     assert "which programs are on here" in system
+
+def test_response_schema_allows_at_most_one_call():
+    calls = aura_llm.response_schema(aura_llm.load_tools())["properties"]["tool_calls"]
+    assert calls["maxItems"] == 1

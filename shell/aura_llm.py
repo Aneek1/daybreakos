@@ -70,7 +70,10 @@ def response_schema(tools):
             },
             "required": ["cmd", "args"],
         })
-    calls = {"type": "array", "items": {"anyOf": variants}} if variants else {"type": "array", "maxItems": 0}
+    # maxItems 1: measured runs showed the model repeating one call until the
+    # token limit, which cost latency and truncated the output.
+    calls = ({"type": "array", "maxItems": 1, "items": {"anyOf": variants}}
+             if variants else {"type": "array", "maxItems": 0})
     return {"type": "object",
             "properties": {"reply": {"type": "string"}, "tool_calls": calls},
             "required": ["reply", "tool_calls"]}
