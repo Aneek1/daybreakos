@@ -195,6 +195,13 @@ def test_gate_refuses_question_and_acknowledgement_shapes():
                 "explain what an operating system is", "write a haiku about the sea"):
         assert not aura_llm.action_allowed(say), say
 
+def test_gate_admits_wifi_status_questions():
+    # Asking after the network is a system_status call, whatever the user calls
+    # the network; only the toggle the desktop cannot do is refused below.
+    for say in ("check wifi status", "is my wi-fi working", "check the wifi",
+                "what's the wifi status"):
+        assert aura_llm.action_allowed(say), say
+
 def test_gate_refuses_requests_for_things_that_are_not_tools():
     for say in ("turn off wi-fi", "switch to light mode", "tile my windows", "lock the screen"):
         assert not aura_llm.action_allowed(say), say
@@ -221,7 +228,7 @@ def test_ask_drops_a_call_when_the_gate_refuses_the_phrasing(monkeypatch):
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `6 failed, 43 passed`, the first five failing with `AttributeError: module 'aura_llm' has no attribute 'action_allowed'`.
+Expected: `7 failed, 43 passed`, the first six failing with `AttributeError: module 'aura_llm' has no attribute 'action_allowed'`.
 
 - [ ] **Step 3: Implement**
 
@@ -238,11 +245,12 @@ _NO_ACTION = re.compile(
     r"|\bhow do\b"
     r"|\bwhat (is|are|does|time)\b"
     r"|\bwhy\b|\bexplain\b|\btell me\b|\bwrite a\b|\bwho made\b|\bare you\b|\bi love\b"
-    r"|\btile\b|\blight mode\b|\bdark mode\b|\block the screen\b|\bwi-?fi\b", re.I)
+    r"|\btile\b|\blight mode\b|\bdark mode\b|\block the screen\b"
+    r"|\bturn (on|off) (the )?wi-?fi\b", re.I)
 
 _ACTION_CUE = re.compile(
     r"\b(open|launch|lauch|start|run|show|list|close|quit|set|turn|adjust|check|dim|"
-    r"shut\s?down|power|reboot|restart|bright\w*|status|uptime|battery|network|"
+    r"shut\s?down|power|reboot|restart|bright\w*|status|uptime|battery|network|wi-?fi|"
     r"software|installed|settings|system|terminal|app|apps)\b"
     r"|\bcommand line\b", re.I)
 
@@ -276,10 +284,10 @@ Expected: no output. If anything still references it, update that call site to `
 - [ ] **Step 5: Run the tests**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `49 passed`
+Expected: `50 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `123 passed`
+Expected: `124 passed`
 
 Run: `python -m py_compile shell/aura_llm.py`
 Expected: no output.
@@ -341,7 +349,7 @@ def test_free_prompt_is_unchanged():
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `2 failed, 48 passed` — the new test fails on the missing examples, and `test_free_prompt_is_unchanged` fails because the code still emits the old prompt.
+Expected: `2 failed, 49 passed` — the new test fails on the missing examples, and `test_free_prompt_is_unchanged` fails because the code still emits the old prompt.
 
 - [ ] **Step 3: Implement**
 
@@ -367,10 +375,10 @@ The wording deliberately differs from every phrase in `tests/aura_eval_cases.jso
 - [ ] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `50 passed`
+Expected: `51 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `124 passed`
+Expected: `125 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -424,10 +432,10 @@ with:
 - [ ] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_aura_llm.py -q -p no:cacheprovider`
-Expected: `51 passed`
+Expected: `52 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `125 passed`
+Expected: `126 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -489,7 +497,7 @@ Run: `python -m pytest tests/test_launcher_ctx.py -q -p no:cacheprovider`
 Expected: `1 passed`
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `126 passed`
+Expected: `127 passed`
 
 Run: `bash -n scripts/10-aurora-shell.sh`
 Expected: no output.
@@ -568,7 +576,7 @@ Replace the table in `README.md`'s "Aura evaluation" section with the generated 
 - [ ] **Step 6: Run the suite once more**
 
 Run: `python -m pytest tests -q -p no:cacheprovider`
-Expected: `126 passed`
+Expected: `127 passed`
 
 - [ ] **Step 7: Commit**
 

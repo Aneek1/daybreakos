@@ -320,6 +320,13 @@ def test_gate_refuses_question_and_acknowledgement_shapes():
                 "explain what an operating system is", "write a haiku about the sea"):
         assert not aura_llm.action_allowed(say), say
 
+def test_gate_admits_wifi_status_questions():
+    # Asking after the network is a system_status call, whatever the user calls
+    # the network; only the toggle the desktop cannot do is refused below.
+    for say in ("check wifi status", "is my wi-fi working", "check the wifi",
+                "what's the wifi status"):
+        assert aura_llm.action_allowed(say), say
+
 def test_gate_refuses_requests_for_things_that_are_not_tools():
     for say in ("turn off wi-fi", "switch to light mode", "tile my windows", "lock the screen"):
         assert not aura_llm.action_allowed(say), say

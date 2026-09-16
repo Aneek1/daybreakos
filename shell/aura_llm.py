@@ -12,11 +12,12 @@ _NO_ACTION = re.compile(
     r"|\bhow do\b"
     r"|\bwhat (is|are|does|time)\b"
     r"|\bwhy\b|\bexplain\b|\btell me\b|\bwrite a\b|\bwho made\b|\bare you\b|\bi love\b"
-    r"|\btile\b|\blight mode\b|\bdark mode\b|\block the screen\b|\bwi-?fi\b", re.I)
+    r"|\btile\b|\blight mode\b|\bdark mode\b|\block the screen\b"
+    r"|\bturn (on|off) (the )?wi-?fi\b", re.I)
 
 _ACTION_CUE = re.compile(
     r"\b(open|launch|lauch|start|run|show|list|close|quit|set|turn|adjust|check|dim|"
-    r"shut\s?down|power|reboot|restart|bright\w*|status|uptime|battery|network|"
+    r"shut\s?down|power|reboot|restart|bright\w*|status|uptime|battery|network|wi-?fi|"
     r"software|installed|settings|system|terminal|app|apps)\b"
     r"|\bcommand line\b", re.I)
 
