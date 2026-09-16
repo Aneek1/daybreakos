@@ -53,14 +53,14 @@ A module-level dict maps an invented name to a registry tool and, where needed, 
 
 ```
 open_settings        -> open_app{name: "settings"}
-open_browser         -> open_app{name: "firefox"}
+open_browser         -> open_app{name: "web browser"}
 check_battery_status -> system_status{}
 check_network        -> system_status{}
 check_network_status -> system_status{}
 system_health_check  -> system_status{}
 ```
 
-Applied in `parse_model_output` after JSON parsing and before `validate_call`, so routing, the schema path and the evaluation harness all see the corrected call. An alias never invents an argument the tool does not declare; `open_app`'s `name` value comes from the alias entry. Any alias whose target is absent from the registry is ignored, so a trimmed registry cannot resurrect a tool.
+Applied in `ask()` after parsing and before the gate, **not** inside `parse_model_output`, so model-level evaluation still sees exactly what the model produced and only the pipeline benefits. An alias never invents an argument the tool does not declare; `open_app`'s `name` value comes from the alias entry. Any alias whose target is absent from the registry is ignored, so a trimmed registry cannot resurrect a tool.
 
 ### 4.2 The action gate
 
